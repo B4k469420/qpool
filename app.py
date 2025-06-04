@@ -663,29 +663,66 @@ if not df.empty:
                 """, unsafe_allow_html=True)
     
             st.markdown("### 📈 Burn History (Last 30 Days)")
-            recent_burns = df_burn[df_burn['timestamp'] > (datetime.now() - timedelta(days=30))]
-    
-            fig_burn = go.Figure()
-            fig_burn.add_trace(go.Bar(
-                x=recent_burns['timestamp'],
-                y=recent_burns['qubic_amount'],
-                name='QUBIC Burned',
-                marker_color='crimson',
-                hovertemplate='%{x|%Y-%m-%d %H:%M}<br>%{y:,.0f} QUBIC<extra></extra>'
-            ))
-    
-            fig_burn.update_layout(
-                xaxis_title="Date",
-                yaxis_title="QUBIC Burned",
-                plot_bgcolor='rgba(0,0,0,0)',
-                paper_bgcolor='rgba(0,0,0,0)',
-                font=dict(color='white'),
-                margin=dict(l=20, r=20, t=30, b=30),
-                height=300
-            )
-            st.plotly_chart(fig_burn, use_container_width=True)
+            
+            # Ensure datetime.now() is timezone-naive if df_burn['timestamp'] is naive at this point,
+            # or make it timezone-aware if df_burn['timestamp'] is.
+            # Assuming df_burn['timestamp'] from load_burn_data() is naive initially:
+            thirty_days_ago = datetime.now() - timedelta(days=30)
+            recent_burns = df_burn[df_burn['timestamp'] > thirty_days_ago].copy()
+
+            if not recent_burns.empty: # <<< Check if recent_burns has data
+                # Make sure timestamps are datetime and timezone-aware in UTC
+                recent_burns['timestamp'] = pd.to_datetime(recent_burns['timestamp'], utc=True)
+        
+                # Define the starting point of epoch 162 (timezone-aware)
+                epoch_162_start = pd.Timestamp('2025-05-28 12:00:00', tz='UTC')
                 
-            latest_qubic_price = df_chart['qubic_usdt'].iloc[-1] if not df_chart.empty else 0
+                # Compute the epoch number
+                def compute_epoch_number(ts):
+                    if pd.isna(ts): # Handle potential NaT values if any
+                        return np.nan
+                    delta = ts - epoch_162_start
+                    weeks_offset = int(delta.total_seconds() // (7 * 24 * 3600))
+                    return 162 + weeks_offset
+                
+                recent_burns['epoch'] = recent_burns['timestamp'].apply(compute_epoch_number)
+                
+                # Drop rows where epoch could not be computed (e.g., if timestamp was NaT)
+                recent_burns.dropna(subset=['epoch'], inplace=True)
+
+                if not recent_burns.empty: # Check again after potential dropna
+                    burn_by_epoch = recent_burns.groupby('epoch')['qubic_amount'].sum().reset_index()
+                    
+                    # Convert epoch numbers to integers (if they became float due to NaN) then to strings
+                    burn_by_epoch['epoch'] = burn_by_epoch['epoch'].astype(int).astype(str)
+                    
+                    fig_burn = go.Figure()
+                    fig_burn.add_trace(go.Bar(
+                        x=burn_by_epoch['epoch'],
+                        y=burn_by_epoch['qubic_amount'],
+                        name='QUBIC Burned',
+                        marker_color='crimson',
+                        hovertemplate='Epoch %{x}<br>%{y:,.0f} QUBIC<extra></extra>'
+                    ))
+                    
+                    fig_burn.update_layout(
+                        barmode='stack',
+                        xaxis_title="Epoch",
+                        yaxis_title="QUBIC Burned",
+                        plot_bgcolor='rgba(0,0,0,0)',
+                        paper_bgcolor='rgba(0,0,0,0)',
+                        font=dict(color='white'),
+                        xaxis=dict(type='category'),
+                        margin=dict(l=20, r=20, t=30, b=30),
+                        height=300
+                    )
+                    st.plotly_chart(fig_burn, use_container_width=True)
+                else:
+                    st.info("No valid burn data to display by epoch for the last 30 days.")
+            else:
+                st.info("No burn transactions found in the last 30 days.") # Message if recent_burns was initially empty
+                
+            latest_qubic_price = df_chart['qubic_usdt'].iloc[-1] if not df_chart.empty and 'qubic_usdt' in df_chart.columns and not df_chart['qubic_usdt'].empty else 0
             
             st.markdown("### 📋 Recent Burn Transactions")
             df_burn['Current Value ($)'] = df_burn['qubic_amount'] * latest_qubic_price
