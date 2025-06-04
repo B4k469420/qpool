@@ -166,7 +166,7 @@ def format_timespan(delta):
     if delta.days > 0: return f"{delta.days}d {delta.seconds//3600}h ago"
     return f"{delta.seconds//3600}h {(delta.seconds%3600)//60}m ago"
 
-def downsample(df, interval='5T'):
+def downsample(df, interval='5min'):
     """Downsample DataFrame while preserving key points (ATH, blocks)."""
     if df.empty:
         return df
