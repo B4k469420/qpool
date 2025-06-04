@@ -170,8 +170,11 @@ def downsample(df, interval='5T'):
     """Downsample DataFrame while preserving key points (ATH, blocks)."""
     if df.empty:
         return df
-    ath = df['pool_hashrate'].idxmax()
-    blocks = df[df['block_found']].index
+
+    # df['block_found'] is already correctly calculated in load_data()
+
+    ath_idx = df['pool_hashrate'].idxmax()
+    original_block_indices = df[df['block_found']].index
 
     df_resampled = df.resample(interval, on='timestamp').agg({
         'pool_hashrate': 'mean',
@@ -179,19 +182,47 @@ def downsample(df, interval='5T'):
         'network_hashrate': 'mean',
         'network_hashrate_ghs': 'mean',
         'pool_blocks_found': 'last',
-        'block_found': 'any',
+        'block_found': 'any',  # This uses the correct df['block_found']
         'qubic_usdt': 'last',
         'close': 'last'
     }).reset_index()
 
-    extra_points = pd.concat([df.loc[[ath]]] + [df.loc[[i]] for i in blocks if i not in df_resampled.index])
-    df_combined = pd.concat([df_resampled, extra_points]).sort_values('timestamp').drop_duplicates('timestamp')
+    # Prepare extra points (ATH and actual block events from original data)
+    # These points will carry their original 'block_found' status
+    extra_points_list = []
+    if not df.empty:
+        ath_df = df.loc[[ath_idx]].copy()
+        extra_points_list.append(ath_df)
+
+        actual_block_df = df.loc[original_block_indices].copy()
+        # Avoid double-adding ATH if it was also a block event time
+        if ath_idx in actual_block_df.index:
+            actual_block_df = actual_block_df.drop(ath_idx, errors='ignore') # Add errors='ignore' for safety
+        if not actual_block_df.empty:
+            extra_points_list.append(actual_block_df)
+    
+    if extra_points_list:
+        # Ensure 'timestamp' is a column if it was an index in the original df slices
+        # (load_data ensures 'timestamp' is a column, so .loc slices should be fine)
+        extra_points_combined_df = pd.concat(extra_points_list)
+        df_combined = pd.concat([df_resampled, extra_points_combined_df])
+    else:
+        df_combined = df_resampled.copy() # If no extra points, use only resampled data
+
+    # Sort to prioritize rows where block_found is True if timestamps are identical, then by timestamp.
+    # This ensures that if an actual block event (True) and a resampled point (False)
+    # share a timestamp, the True event is kept.
+    df_combined.sort_values(by=['timestamp', 'block_found'], ascending=[True, False], inplace=True)
+    df_combined.drop_duplicates(subset=['timestamp'], keep='first', inplace=True)
+    
+    # Ensure final sort by timestamp for chronological plotting
+    df_combined.sort_values(by=['timestamp'], inplace=True)
     
     # Fill forward any missing prices
     df_combined[['qubic_usdt', 'close']] = df_combined[['qubic_usdt', 'close']].ffill()
     
-    # Recalculate block_found based on pool_blocks_found diff
-    df_combined['block_found'] = df_combined['pool_blocks_found'].diff().fillna(0) > 0
+    # CRITICAL FIX: REMOVE THE FOLLOWING LINE
+    # df_combined['block_found'] = df_combined['pool_blocks_found'].diff().fillna(0) > 0
 
     return df_combined
     
