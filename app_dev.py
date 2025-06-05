@@ -646,7 +646,7 @@ if not df.empty:
             # Assuming df_burn['timestamp'] from load_burn_data() is naive initially:
             thirty_days_ago = datetime.now() - timedelta(days=30)
             recent_burns = df_burn[df_burn['timestamp'] > thirty_days_ago].copy() 
-            df_burn['TX_URL'] = "https://explorer.qubic.org/network/tx/" + df_burn['tx_id']
+            df_burn['TX_URL'] = "https://explorer.qubic.org/network/tx/" + df_burn['tx']
 
             if not recent_burns.empty: # <<< Check if recent_burns has data
                 # Make sure timestamps are datetime and timezone-aware in UTC
