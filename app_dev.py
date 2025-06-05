@@ -35,7 +35,6 @@ top = random.randint(10, 80)
 left = random.randint(10, 80)
 duration = random.randint(5, 15)
 
-
 query = f"""
 SELECT 
     timestamp, 
@@ -50,9 +49,8 @@ SELECT
     last_block_found
 FROM pool_stats 
 ORDER BY timestamp DESC 
-LIMIT {num_records};
+LIMIT 1200;
 """
-
 
 # Setup page
 st.set_page_config(
