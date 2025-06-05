@@ -711,7 +711,7 @@ if not df.empty:
     
             # 2. Create the 'TX_URL' column using the original 'txid' column
             # This column will contain the actual URLs.
-            df_display_burns['TX_URL'] = "https://explorer.qubic.org/network/tx/" + df_display_burns['TX']
+            df_display_burns['TX_URL'] = "https://explorer.qubic.org/network/tx/" + df_display_burns['tx']
     
             # df_display_burns now contains: 
             # timestamp, txid, qubic_amount, usdt_value, 'Current Value ($)', 'TX_URL'
