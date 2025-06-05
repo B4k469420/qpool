@@ -10,6 +10,7 @@ from plotly.subplots import make_subplots
 import base64
 import random
 import sqlite3
+import os
 
 # Configuration
 DB_URL = "http://66.179.92.83/data/qpool_data.db" 
