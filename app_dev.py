@@ -13,8 +13,7 @@ import sqlite3
 import os
 
 # Configuration
-DB_URL = "http://66.179.92.83/data/qpool_data.db" 
-LOCAL_DB_PATH = "downloaded_pool_data.db"
+#LOCAL_DB_PATH = "downloaded_pool_data.db"
 REFRESH_INTERVAL = 1  # seconds
 
 # Encode the cat image to base64
@@ -149,27 +148,8 @@ st.markdown("""
 @st.cache_data(ttl=REFRESH_INTERVAL, show_spinner="Loading data...")
 def download_and_query_db(query):
     try:
-        # Retrieve credentials from Streamlit secrets
-        db_user = st.secrets.get("DB_USERNAME")
-        db_password = st.secrets.get("DB_PASSWORD")
-
-        if not db_user or not db_password:
-            st.error("Database credentials not found in Streamlit secrets. Please configure them.")
-            return pd.DataFrame()
-
-        st.info(f"Downloading database from server ({datetime.now().strftime('%H:%M:%S')})...")
-        response = requests.get(
-            DB_URL,
-            auth=(db_user, db_password), # HTTP Basic Authentication
-            timeout=15
-        )
-        response.raise_for_status()
-
-        with open(LOCAL_DB_PATH, "wb") as f:
-            f.write(response.content)
-
-        conn = sqlite3.connect(LOCAL_DB_PATH)
-        df = pd.read_sql_query(query, conn)
+        conn = st.connection('qpool', type='sql')
+        df = conn.query(query)
         conn.close()
         return df
 
