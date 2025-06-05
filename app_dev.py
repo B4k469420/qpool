@@ -646,7 +646,7 @@ if not df.empty:
             # Assuming df_burn['timestamp'] from load_burn_data() is naive initially:
             thirty_days_ago = datetime.now() - timedelta(days=30)
             recent_burns = df_burn[df_burn['timestamp'] > thirty_days_ago].copy() 
-            df_burn['TX_URL'] = "https://explorer.qubic.org/network/tx/" + df_burn['tx']
+            
 
             if not recent_burns.empty: # <<< Check if recent_burns has data
                 # Make sure timestamps are datetime and timezone-aware in UTC
@@ -707,13 +707,14 @@ if not df.empty:
             df_burn_display = df_burn.copy()
             df_burn_display['Current Value ($)'] = df_burn_display['qubic_amount'] * latest_qubic_price
             # Rename columns for display consistency
-            df_burn_display.columns = ['Timestamp', 'TX', 'QUBIC (amount)', 'Value ($USDT)', 'Current Value ($)'] 
+            df_burn_display.columns = ['Timestamp', 'TX', 'QUBIC (amount)', 'Value ($USDT)', 'Current Value ($)']
+            df_burn_display['TX_URL'] = "https://explorer.qubic.org/network/tx/" + df_burn_display['tx']
             
-            df_display = df_burn.rename(columns={'tx_id': 'TX', 'value_usdt': 'Value ($USDT)'})
+            df_burn_display = df_burn_display.rename(columns={'tx_id': 'TX', 'value_usdt': 'Value ($USDT)'})
 
 
             st.dataframe(
-                df_display[['Timestamp', 'TX', 'TX_URL', 'qubic_amount', 'Value ($USDT)', 'Current Value ($)']].sort_values('Timestamp', ascending=False),
+                df_burn_display[['Timestamp', 'TX', 'TX_URL', 'qubic_amount', 'Value ($USDT)', 'Current Value ($)']].sort_values('Timestamp', ascending=False),
                 use_container_width=True,
                 hide_index=True,
                 column_config={
