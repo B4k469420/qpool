@@ -175,7 +175,7 @@ def download_and_query_db(query):
         st.error(f"An unexpected error occurred: {e}")
         return pd.DataFrame()
     finally:
-        st.error(f"An unexpected error occurred: {e}")
+        st.error(f"An unexpected error occurred")
 
 
 def load_data():
