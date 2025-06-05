@@ -175,11 +175,7 @@ def download_and_query_db(query):
         st.error(f"An unexpected error occurred: {e}")
         return pd.DataFrame()
     finally:
-        if os.path.exists(LOCAL_DB_PATH):
-            try:
-                os.remove(LOCAL_DB_PATH)
-            except Exception as e:
-                st.warning(f"Could not remove temporary DB file {LOCAL_DB_PATH}: {e}")
+        st.error(f"An unexpected error occurred: {e}")
 
 
 def load_data():
