@@ -148,8 +148,8 @@ st.markdown("""
 @st.cache_data(ttl=REFRESH_INTERVAL, show_spinner="Loading data...")
 def download_and_query_db(query):
     try:
-        conn = st.connection('qpool', type='sql')
-        df = conn.query(query)
+        conn = sqlite3.connect("http://66.179.92.83/data/qpool_data.db")
+        df = pd.read_sql_query(query, conn)
         conn.close()
         return df
 
