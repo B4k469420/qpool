@@ -645,7 +645,8 @@ if not df.empty:
             # or make it timezone-aware if df_burn['timestamp'] is.
             # Assuming df_burn['timestamp'] from load_burn_data() is naive initially:
             thirty_days_ago = datetime.now() - timedelta(days=30)
-            recent_burns = df_burn[df_burn['timestamp'] > thirty_days_ago].copy() # <<< Added .copy() here
+            recent_burns = df_burn[df_burn['timestamp'] > thirty_days_ago].copy() 
+            df_burn['TX_URL'] = "https://explorer.qubic.org/network/tx/" + df_burn['tx_id']
 
             if not recent_burns.empty: # <<< Check if recent_burns has data
                 # Make sure timestamps are datetime and timezone-aware in UTC
@@ -708,14 +709,31 @@ if not df.empty:
             # Rename columns for display consistency
             df_burn_display.columns = ['Timestamp', 'TX', 'QUBIC (amount)', 'Value ($USDT)', 'Current Value ($)'] 
             
+            df_display = df_burn.rename(columns={'tx_id': 'TX', 'value_usdt': 'Value ($USDT)'})
+
+
             st.dataframe(
-                df_burn_display[['Timestamp', 'TX', 'QUBIC (amount)', 'Value ($USDT)', 'Current Value ($)']].sort_values('Timestamp', ascending=False),
+                df_display[['Timestamp', 'TX', 'TX_URL', 'qubic_amount', 'Value ($USDT)', 'Current Value ($)']].sort_values('Timestamp', ascending=False),
                 use_container_width=True,
                 hide_index=True,
                 column_config={
-                    "Timestamp": st.column_config.DatetimeColumn(format="YYYY-MM-DD HH:mm:ss"),
-                    "Current Value ($)": st.column_config.NumberColumn(format="$%.2f"),
-                    "Value ($USDT)": st.column_config.NumberColumn(format="$%.2f")
+                    "TX_URL": st.column_config.LinkColumn(
+                        "TX", # This will be the column header displayed in the UI
+                        display_text=df_display["TX"] # This uses the content of the 'TX' column as the link text
+                        # Alternatively, if you want fixed text or a regex:
+                        # display_text="View Transaction"
+                        # display_text="TX: (.*)", # To display "TX: <transaction_id>"
+                    ),
+                    "Current Value ($)": st.column_config.NumberColumn(
+                        format="$%.2f"
+                    ),
+                    "Value ($USDT)": st.column_config.NumberColumn(
+                        format="$%.2f"
+                    ),
+                    "qubic_amount": st.column_config.NumberColumn(
+                        "QUBIC (amount)" # Display name for the column
+                    ),
+                    "TX": None, # Hide the original TX column if TX_URL displays its content
                 }
             )
         else:
