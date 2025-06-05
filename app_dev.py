@@ -9,9 +9,11 @@ from datetime import datetime, timedelta
 from plotly.subplots import make_subplots
 import base64
 import random
+import sqlite3
 
 # Configuration
-GITHUB_RAW_URL = "http://66.179.92.83/data/qpool_V1.csv"
+DB_URL = "http://66.179.92.83/data/qpool_data.db" 
+LOCAL_DB_PATH = "downloaded_pool_data.db"
 REFRESH_INTERVAL = 1  # seconds
 
 # Encode the cat image to base64
@@ -32,6 +34,25 @@ duration = random.randint(6, 12)
 top = random.randint(10, 80)
 left = random.randint(10, 80)
 duration = random.randint(5, 15)
+
+
+query = f"""
+SELECT 
+    timestamp, 
+    pool_hashrate / 1e6 AS pool_hashrate_mh, 
+    network_hashrate / 1e9 AS network_hashrate_gh, 
+    pool_blocks_found,
+    close AS xmr_usdt, 
+    qubic_usdt, 
+    qubic_epoch,
+    network_difficulty,
+    network_height,
+    last_block_found
+FROM pool_stats 
+ORDER BY timestamp DESC 
+LIMIT {num_records};
+"""
+
 
 # Setup page
 st.set_page_config(
@@ -127,6 +148,61 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 @st.cache_data(ttl=REFRESH_INTERVAL, show_spinner="Loading data...")
+def download_and_query_db(query):
+    try:
+        # Retrieve credentials from Streamlit secrets
+        db_user = st.secrets.get("DB_USERNAME")
+        db_password = st.secrets.get("DB_PASSWORD")
+
+        if not db_user or not db_password:
+            st.error("Database credentials not found in Streamlit secrets. Please configure them.")
+            return pd.DataFrame()
+
+        st.info(f"Downloading database from server ({datetime.now().strftime('%H:%M:%S')})...")
+        response = requests.get(
+            DB_URL,
+            auth=(db_user, db_password), # HTTP Basic Authentication
+            timeout=15
+        )
+        response.raise_for_status()
+
+        with open(LOCAL_DB_PATH, "wb") as f:
+            f.write(response.content)
+
+        conn = sqlite3.connect(LOCAL_DB_PATH)
+        df = pd.read_sql_query(query, conn)
+        conn.close()
+        return df
+
+    except requests.exceptions.Timeout:
+        st.error(f"Timeout: Could not download database from {DB_URL} within 15 seconds.")
+        return pd.DataFrame()
+    except requests.exceptions.HTTPError as e:
+        if e.response.status_code == 401: # Unauthorized
+            st.error(f"HTTP Error 401: Unauthorized. Check username/password and server configuration. URL: {DB_URL}")
+        else:
+            st.error(f"HTTP Error: {e.response.status_code} when trying to download database. URL: {DB_URL}")
+        return pd.DataFrame()
+    except requests.exceptions.ConnectionError:
+        st.error(f"Connection Error: Failed to connect to {DB_URL}. Is the server online and the URL correct?")
+        return pd.DataFrame()
+    except requests.exceptions.RequestException as e:
+        st.error(f"Download Error: {e}")
+        return pd.DataFrame()
+    except sqlite3.Error as e:
+        st.error(f"SQLite Error: {e}. The downloaded file might be corrupted or not a valid DB.")
+        return pd.DataFrame()
+    except Exception as e: # Catch any other unexpected errors
+        st.error(f"An unexpected error occurred: {e}")
+        return pd.DataFrame()
+    finally:
+        if os.path.exists(LOCAL_DB_PATH):
+            try:
+                os.remove(LOCAL_DB_PATH)
+            except Exception as e:
+                st.warning(f"Could not remove temporary DB file {LOCAL_DB_PATH}: {e}")
+
+
 def load_data():
     """Load and preprocess CSV data."""
     try:
@@ -326,7 +402,7 @@ def generate_funny_pool_stats(df: pd.DataFrame):
 
 
 # Load data
-df = load_data()
+df = download_and_query_db(query)
 
 st.markdown("""
 <div style="text-align: left; margin-bottom: 2rem;">
