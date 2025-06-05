@@ -703,38 +703,55 @@ if not df.empty:
             latest_qubic_price = df_chart['qubic_usdt'].iloc[-1] if not df_chart.empty and 'qubic_usdt' in df_chart.columns and not df_chart['qubic_usdt'].empty else 0
             
             st.markdown("### 📋 Recent Burn Transactions")
-            # Make a copy before adding the 'Current Value ($)' column to df_burn for display
-            df_burn_display = df_burn.copy()
-            df_burn_display['Current Value ($)'] = df_burn_display['qubic_amount'] * latest_qubic_price
-            # Rename columns for display consistency
-            df_burn_display.columns = ['Timestamp', 'TX', 'QUBIC (amount)', 'Value ($USDT)', 'Current Value ($)']
-            df_burn_display['TX_URL'] = "https://explorer.qubic.org/network/tx/" + df_burn_display['TX']
-            
-            df_burn_display = df_burn_display.rename(columns={'tx_id': 'TX ID', 'value_usdt': 'Value ($USDT)'})
-
-
+                    
+            df_display_burns = df_burn.copy() # Start with a fresh copy
+    
+            # 1. Add 'Current Value ($)' using original column names
+            df_display_burns['Current Value ($)'] = df_display_burns['qubic_amount'] * latest_qubic_price
+    
+            # 2. Create the 'TX_URL' column using the original 'txid' column
+            # This column will contain the actual URLs.
+            df_display_burns['TX_URL'] = "https://explorer.qubic.org/network/tx/" + df_display_burns['txid']
+    
+            # df_display_burns now contains: 
+            # timestamp, txid, qubic_amount, usdt_value, 'Current Value ($)', 'TX_URL'
+    
+            # 3. Sort the DataFrame by timestamp in descending order
+            df_display_burns = df_display_burns.sort_values('timestamp', ascending=False)
+    
+            # 4. Display the DataFrame using st.dataframe
             st.dataframe(
-                df_burn_display[['Timestamp', 'TX ID', 'TX_URL', 'qubic_amount', 'Value ($USDT)', 'Current Value ($)']].sort_values('Timestamp', ascending=False),
+                df_display_burns, # Pass the prepared DataFrame
+                # Specify the order of columns as they should appear in the UI
+                column_order=("timestamp", "TX_URL", "qubic_amount", "usdt_value", "Current Value ($)"),
                 use_container_width=True,
                 hide_index=True,
                 column_config={
+                    "timestamp": st.column_config.DatetimeColumn(
+                        label="Timestamp", # Sets the display header for the 'timestamp' column
+                        format="YYYY-MM-DD HH:mm:ss" # Adjust format as preferred
+                    ),
                     "TX_URL": st.column_config.LinkColumn(
-                        "TX ID", # This will be the column header displayed in the UI
-                        display_text=df_display["TX"] # This uses the content of the 'TX' column as the link text
-                        # Alternatively, if you want fixed text or a regex:
-                        # display_text="View Transaction"
-                        # display_text="TX: (.*)", # To display "TX: <transaction_id>"
-                    ),
-                    "Current Value ($)": st.column_config.NumberColumn(
-                        format="$%.2f"
-                    ),
-                    "Value ($USDT)": st.column_config.NumberColumn(
-                        format="$%.2f"
+                        label="TX ID",  # This is the header for the clickable link column in the UI
+                        # The 'display_text' regex extracts the transaction ID part from the URL
+                        # stored in each cell of the 'TX_URL' column.
+                        display_text=r"https://explorer\.qubic\.org/network/tx/(.+)"
                     ),
                     "qubic_amount": st.column_config.NumberColumn(
-                        "QUBIC (amount)" # Display name for the column
+                        label="QUBIC (amount)", # Display header
+                        format="%.0f" # Format as an integer
                     ),
-                    "TX": None, # Hide the original TX column if TX_URL displays its content
+                    "usdt_value": st.column_config.NumberColumn(
+                        label="Value ($USDT)", # Display header for the original USDT value at burn time
+                        format="$%.2f"
+                    ),
+                    "Current Value ($)": st.column_config.NumberColumn(
+                        # Label will be "Current Value ($)" by default (from the column key)
+                        format="$%.2f"
+                    ),
+                    # Hide the original 'txid' column as its information is now presented
+                    # as the clickable text within the 'TX_URL' (displayed as "TX ID") column.
+                    "txid": None
                 }
             )
         else:
