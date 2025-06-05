@@ -4,3 +4,4 @@ plotly
 requests
 numpy
 ccxt
+sqlalchemy
