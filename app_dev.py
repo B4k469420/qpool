@@ -708,18 +708,18 @@ if not df.empty:
             df_burn_display['Current Value ($)'] = df_burn_display['qubic_amount'] * latest_qubic_price
             # Rename columns for display consistency
             df_burn_display.columns = ['Timestamp', 'TX', 'QUBIC (amount)', 'Value ($USDT)', 'Current Value ($)']
-            df_burn_display['TX_URL'] = "https://explorer.qubic.org/network/tx/" + df_burn_display['tx']
+            df_burn_display['TX_URL'] = "https://explorer.qubic.org/network/tx/" + df_burn_display['TX']
             
-            df_burn_display = df_burn_display.rename(columns={'tx_id': 'TX', 'value_usdt': 'Value ($USDT)'})
+            df_burn_display = df_burn_display.rename(columns={'tx_id': 'TX ID', 'value_usdt': 'Value ($USDT)'})
 
 
             st.dataframe(
-                df_burn_display[['Timestamp', 'TX', 'TX_URL', 'qubic_amount', 'Value ($USDT)', 'Current Value ($)']].sort_values('Timestamp', ascending=False),
+                df_burn_display[['Timestamp', 'TX ID', 'TX_URL', 'qubic_amount', 'Value ($USDT)', 'Current Value ($)']].sort_values('Timestamp', ascending=False),
                 use_container_width=True,
                 hide_index=True,
                 column_config={
                     "TX_URL": st.column_config.LinkColumn(
-                        "TX", # This will be the column header displayed in the UI
+                        "TX ID", # This will be the column header displayed in the UI
                         display_text=df_display["TX"] # This uses the content of the 'TX' column as the link text
                         # Alternatively, if you want fixed text or a regex:
                         # display_text="View Transaction"
