@@ -316,87 +316,6 @@ def load_burn_data():
 
 import pandas as pd
 
-def generate_funny_pool_stats(df: pd.DataFrame):
-    # Remove duplicates and parse timestamps
-    df = df.drop_duplicates(subset="timestamp").copy()
-    df["timestamp"] = pd.to_datetime(df["timestamp"])
-    df["timestamp_hour"] = pd.to_datetime(df["timestamp_hour"])
-    df = df.sort_values("timestamp")
-
-    # Time groupings
-    df["hour"] = df["timestamp"].dt.floor("h")
-    df["4h"] = df["timestamp"].dt.floor("4h")
-    df["day"] = df["timestamp"].dt.floor("d")
-    df["week"] = df["timestamp"].dt.to_period("W").dt.start_time
-    df["month"] = df["timestamp"].dt.to_period("M").dt.start_time
-
-    # Calculate delta in blocks (assumes pool_blocks_found is cumulative)
-    df["blocks_delta"] = df["pool_blocks_found"].diff().fillna(0)
-    # Only positive block increases matter
-    block_gains = df[df["blocks_delta"] > 0].copy()
-    
-    results = []
-    descriptions = []
-
-    def add_stat(name, score, date, desc, epoch="N/A"):
-        results.append({"Competition": name, "Score": score, "Date": str(date), "Epoch": epoch})
-        descriptions.append({"Competition": name, "Description": desc})
-
-
-    # 1. Pool Hashrate ATH
-    ath = df["pool_hashrate"].max()
-    ath_time = df[df["pool_hashrate"] == ath]["timestamp"].iloc[0]
-    ath_mhs = ath / 1_000_000
-    add_stat("Pool Hashrate ATH", f"{ath_mhs:,.2f} MH/s", ath_time, "HHashrate All Time High", epoch="N/A")
-    
-
-    # 2. Sprint (1h)
-    blocks_1h = block_gains.groupby("hour")["blocks_delta"].sum()
-    sprint = blocks_1h.max()
-    sprint_time = blocks_1h.idxmax()
-    sprint_epoch = df[df["timestamp"].dt.floor("h") == sprint_time]["qubic_epoch"].mode()[0]
-    add_stat("Sprint", f"{int(sprint)} blocks", sprint_time, "Most blocks found in a single hour.", sprint_epoch)
-    
-    # 3. Mid-distance (4h)
-    blocks_4h = block_gains.groupby("4h")["blocks_delta"].sum()
-    mid = blocks_4h.max()
-    mid_time = blocks_4h.idxmax()
-    mid_epoch = df[df["timestamp"].dt.floor("4h") == mid_time]["qubic_epoch"].mode()[0]
-    add_stat("Mid-distance", f"{int(mid)} blocks", mid_time, "Most blocks found in a 4-hour window.", mid_epoch)
-    
-    # 4. Long-distance (24h)
-    blocks_day = block_gains.groupby("day")["blocks_delta"].sum()
-    long_dist = blocks_day.max()
-    long_time = blocks_day.idxmax()
-    long_epoch = df[df["timestamp"].dt.floor("d") == long_time]["qubic_epoch"].mode()[0]
-    add_stat("Long-distance", f"{int(long_dist)} blocks", long_time, "Most blocks found in 24 hours.", long_epoch)
-    
-    # 5. Marathon (week)
-    blocks_week = block_gains.groupby("week")["blocks_delta"].sum()
-    marathon = blocks_week.max()
-    marathon_time = blocks_week.idxmax()
-    marathon_epoch = df[df["timestamp"].dt.to_period("W").dt.start_time == marathon_time]["qubic_epoch"].mode()[0]
-    add_stat("Marathon", f"{int(marathon)} blocks", marathon_time, "Most blocks found in a week.", marathon_epoch)
-
-    # 6. Lightning Round (shortest time to mine 3 blocks)
-    block_changes = df[df["blocks_delta"] > 0]["timestamp"]
-    if len(block_changes) >= 3:
-        min_diff = (block_changes.diff(2)).min()
-        short_span_time = block_changes.iloc[2]
-        add_stat("Lightning Round", f"3 blocks in {min_diff}", short_span_time, "Fastest time to mine 3 blocks.", "N/A")
-    else:
-        add_stat("Lightning Round", "Insufficient data", "N/A", "Fastest time to mine 3 blocks.")
-
-    # 7. Power Hour (highest average hashrate in 1h)
-    hash_hour = df.groupby("hour")["pool_hashrate"].mean()
-    power_val = hash_hour.max()
-    power_time = hash_hour.idxmax()
-    add_stat("Pool Hashrate Power Hour", f"{power_val:,.2f} MH/s", power_time, "Hour with the highest average hashrate.")
-
-    results_df = pd.DataFrame(results)
-    descriptions_df = pd.DataFrame(descriptions)
-
-    return results_df, descriptions_df
 
 
 
@@ -449,7 +368,7 @@ if not df.empty:
     
 
     
-    tab1, tab2, tab3, tab4 = st.tabs(["Pool Stats", "QUBIC/XMR", "Token Burns", "Hall of Fame"])
+    tab1, tab2, tab3 = st.tabs(["Pool Stats", "QUBIC/XMR", "Token Burns"])
     with tab1: 
         col1, col2 = st.columns([1,3])
         with col1:
@@ -832,13 +751,6 @@ if not df.empty:
             )
         else:
             st.warning("No token burn data available.")
-    with tab4:
-        stats_df, desc_df = generate_funny_pool_stats(df)
-        st.subheader("🥇 World Record Table")
-        st.dataframe(stats_df)
-        
-        with st.expander("📘 Competition Descriptions"):
-            st.dataframe(desc_df)
 
 bcol1, bcol2 = st.columns(2)
 with bcol1:
