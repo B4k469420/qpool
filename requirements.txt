@@ -5,3 +5,4 @@ requests
 numpy
 ccxt
 psycopg2-binary
+sqlalchemy
