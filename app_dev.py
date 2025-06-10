@@ -35,7 +35,7 @@ def load_data_from_postgres():
             qubic_epoch
         FROM qubic_stats 
         ORDER BY timestamp DESC 
-        LIMIT 2500;
+        LIMIT 50000;
         """
         
         df = pd.read_sql_query(query, conn)
