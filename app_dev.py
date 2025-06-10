@@ -135,6 +135,7 @@ st.markdown("""
 </div>
 """, unsafe_allow_html=True)
 
+df = load_data_from_postgres()
 
 # Metric Cards (Top Row)
 if not df.empty:
