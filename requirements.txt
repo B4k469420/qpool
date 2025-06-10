@@ -4,4 +4,4 @@ plotly
 requests
 numpy
 ccxt
-sqlalchemy
+psycopg2-binary
