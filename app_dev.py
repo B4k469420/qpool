@@ -10,7 +10,7 @@ import psycopg2
 import os
 
 # --- Configuration ---
-REFRESH_INTERVAL = 60  # seconds
+REFRESH_INTERVAL = 3  # seconds
 
 # --- Database Connection and Data Loading ---
 @st.cache_data(ttl=REFRESH_INTERVAL, show_spinner="Fetching latest data from database...")
