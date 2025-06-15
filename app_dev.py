@@ -30,8 +30,6 @@ def load_data_from_postgres():
             pool_hashrate, 
             network_hashrate, 
             pool_blocks_found,
-            xmr_usdt, 
-            qubic_usdt, 
             qubic_epoch
         FROM qubic_stats 
         ORDER BY timestamp DESC 
@@ -48,10 +46,6 @@ def load_data_from_postgres():
         df['network_hashrate_ghs'] = df['network_hashrate'] / 1e9
         df['block_found'] = df['pool_blocks_found'].diff().fillna(0) > 0
         
-        # Ensure price columns are numeric
-        for col in ['qubic_usdt', 'xmr_usdt']:
-            df[col] = pd.to_numeric(df[col], errors='coerce')
-
         return df
 
     except psycopg2.OperationalError as e:
@@ -107,8 +101,7 @@ def downsample(df, interval='5T'):
         'network_hashrate_ghs': 'mean',
         'pool_blocks_found': 'last',
         'block_found': 'any',
-        'qubic_usdt': 'last',
-        'xmr_usdt': 'last'
+        'qubic_usdt': 'last'
     }).reset_index()
 
     extra_points_list = []
@@ -125,7 +118,6 @@ def downsample(df, interval='5T'):
     df_combined.sort_values(by=['timestamp', 'block_found'], ascending=[True, False], inplace=True)
     df_combined.drop_duplicates(subset=['timestamp'], keep='first', inplace=True)
     df_combined.sort_values(by=['timestamp'], inplace=True)
-    df_combined[['qubic_usdt', 'xmr_usdt']] = df_combined[['qubic_usdt', 'xmr_usdt']].ffill()
     
     return df_combined
 
@@ -173,42 +165,8 @@ if not df.empty:
     # Calculate delta in blocks found
     df["blocks_delta"] = df["pool_blocks_found"].diff().fillna(0)
     
-    if latest['pool_blocks_found'] == 100:
-        st.balloons()
-        st.markdown("""
-                <style>
-                @keyframes float {
-                    0% { transform: translateY(0); }
-                    100% { transform: translateY(-100vh); opacity: 0; }
-                }
-            
-                .emoji {
-                    position: fixed;
-                    bottom: 0;
-                    animation: float 5s ease-in infinite;
-                    font-size: 36px;
-                }
-            
-                .emoji:nth-child(1) { left: 10%; animation-delay: 0s; }
-                .emoji:nth-child(2) { left: 25%; animation-delay: 1s; }
-                .emoji:nth-child(3) { left: 35%; animation-delay: 2s; }
-                .emoji:nth-child(4) { left: 45%; animation-delay: 3s; }
-                .emoji:nth-child(5) { left: 55%; animation-delay: 4s; }
-                .emoji:nth-child(6) { left: 75%; animation-delay: 5s; }
-                .emoji:nth-child(6) { left: 85%; animation-delay: 6s; }
-                </style>
-            
-                <div class="emoji">🔥</div>
-                <div class="emoji">🎉</div>
-                <div class="emoji">1️⃣</div>
-                <div class="emoji">0️⃣</div>
-                <div class="emoji">0️⃣</div>
-                <div class="emoji">🚀</div>
-                <div class="emoji">🍾</div>
-            """, unsafe_allow_html=True)
     
-    #tab1, tab2, tab3, tab4 = st.tabs(["Pool Stats", "QUBIC/XMR", "Token Burns", "Hall of Fame"])
-    tab1, tab2, tab3 = st.tabs(["Pool Stats", "QUBIC/XMR", "Token Burns"])
+    tab1, tab2 = st.tabs(["Pool Stats", "Token Burns"])
     with tab1: 
         col1, col2 = st.columns([1,3])
         with col1:
@@ -381,90 +339,8 @@ if not df.empty:
             
             st.markdown('</div>', unsafe_allow_html=True)
         
-        with tab2:
-            tol1, tol2 = st.columns([1,3])
-            with tol1:
-            
-                with tol1:
-                    st.markdown(f"""
-                    <div class="metric-card">
-                        <div class="metric-title">QUBIC/USDT</div>
-                        <div class="metric-value">${df_chart['qubic_usdt'].iloc[-1]:.9f}</div>
-                    </div>
-                    <div class="metric-card">
-                        <div class="metric-title">XMR/USDT</div>
-                        <div class="metric-value">${df_chart['close'].iloc[-1]:.2f}</div>
-                    </div>
-                    """, unsafe_allow_html=True)
-
-        
-                with tol2:
-                    # Hashrate Chart
-                    # Price Chart with Stacked Subplots
-                    st.markdown('<div class="chart-container">', unsafe_allow_html=True)
-                    if not df_chart.empty:
-                        # Create price chart
-                        fig_prices = go.Figure()
-                        
-                        # Add XMR price
-                        fig_prices.add_trace(go.Scatter(
-                            x=df_chart['timestamp'],
-                            y=df_chart['close'],
-                            mode='lines',
-                            name='XMR Price (USD)',
-                            line=dict(color='limegreen', width=2),
-                            yaxis='y1'
-                        ))
-                        
-                        # Add QUBIC price (on secondary axis)
-                        fig_prices.add_trace(go.Scatter(
-                            x=df_chart['timestamp'],
-                            y=df_chart['qubic_usdt'],
-                            mode='lines',
-                            name='QUBIC Price (USD)',
-                            line=dict(color='magenta', width=2),
-                            yaxis='y2'
-                        ))
-                        
-                        # Calculate the time range for the last 24 hours
-                        end_time = df_chart['timestamp'].max()
-                        start_time = end_time - timedelta(hours=24)
-                        
-                        # Layout with dual y-axes, range slider, and range selector
-                        fig_prices.update_layout(
-                            title='XMR & QUBIC Prices (24h)',
-                            yaxis=dict(
-                                title='XMR Price (USD)',
-                                tickformat='$.2f',
-                                side='left',
-                                showgrid=False
-                            ),
-                            yaxis2=dict(
-                                title='QUBIC Price (USD)',
-                                tickformat='$.9f',
-                                overlaying='y',
-                                side='right',
-                                showgrid=False
-                            ),
-                            legend=dict(
-                                orientation='h',
-                                yanchor='bottom',
-                                y=1.02,
-                                xanchor='right',
-                                x=1
-                            ),
-                            margin=dict(l=40, r=40, t=40, b=40),
-                            height=350,
-                            plot_bgcolor='rgba(0,0,0,0)',
-                            paper_bgcolor='rgba(0,0,0,0)',
-                            font=dict(color='white')
-                        )
-                        
-                        st.plotly_chart(fig_prices, use_container_width=True)
-                    else:
-                        st.warning("No price data available to display.")
-                    st.markdown('</div>', unsafe_allow_html=True)                    
-    with tab3:
+                  
+    with tab2:
         df_burn = load_burn_data()
         if not df_burn.empty:
             total_qubic_burned = df_burn['qubic_amount'].sum()
@@ -554,21 +430,16 @@ if not df.empty:
                     st.info("No valid burn data to display by epoch for the last 30 days.")
             else:
                 st.info("No burn transactions found in the last 30 days.") # Message if recent_burns was initially empty
-                
-            latest_qubic_price = df_chart['qubic_usdt'].iloc[-1] if not df_chart.empty and 'qubic_usdt' in df_chart.columns and not df_chart['qubic_usdt'].empty else 0
-            
+                       
             st.markdown("### 📋 Recent Burn Transactions")
             df_display_burns = df_burn.copy() # Start with a fresh copy
     
             # 1. Add 'Current Value ($)' using original column names
-            df_display_burns['Current Value ($)'] = df_display_burns['qubic_amount'] * latest_qubic_price
+            df_display_burns['Current Value ($)'] = df_display_burns['qubic_amount'] * 1
     
             # 2. Create the 'TX_URL' column using the original 'txid' column
             # This column will contain the actual URLs.
             df_display_burns['TX_URL'] = "https://explorer.qubic.org/network/tx/" + df_display_burns['tx']
-    
-            # df_display_burns now contains: 
-            # timestamp, txid, qubic_amount, usdt_value, 'Current Value ($)', 'TX_URL'
     
             # 3. Sort the DataFrame by timestamp in descending order
             df_display_burns = df_display_burns.sort_values('timestamp', ascending=False)
