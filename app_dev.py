@@ -3,6 +3,7 @@ import pandas as pd
 import plotly.graph_objects as go
 from datetime import datetime, timedelta
 import psycopg2
+import time
 
 # --- Page Configuration ---
 st.set_page_config(layout="wide", page_title="Qubic Mining Dashboard")
