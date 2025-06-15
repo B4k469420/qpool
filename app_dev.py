@@ -1,202 +1,115 @@
 import streamlit as st
 import pandas as pd
 import plotly.graph_objects as go
-import numpy as np
 from datetime import datetime, timedelta
-import base64
-import random
 import psycopg2
-import os
 
 # --- Page Configuration ---
-st.set_page_config(layout="wide")
-
-# --- Constants ---
-REFRESH_INTERVAL = 30  # seconds
+st.set_page_config(layout="wide", page_title="Qubic Mining Dashboard")
 
 # --- Styling ---
 st.markdown("""
 <style>
-/* Optional: Reduce vertical space of st.metric */
-[data-testid="stMetric"] {
-    background-color: #222b38;
-    border: 1px solid #3a4a60;
-    padding: 15px;
-    border-radius: 10px;
-    margin-bottom: 10px;
-}
-[data-testid="stMetricLabel"] {
-  font-size: 0.9rem;
-  color: #a0b0c0;
-}
+    /* Main layout and theme */
+    .block-container {
+        padding-top: 2rem;
+        padding-bottom: 2rem;
+    }
+    /* Custom Metric Card Style */
+    [data-testid="stMetric"] {
+        background-color: #222b38;
+        border: 1px solid #3a4a60;
+        padding: 15px;
+        border-radius: 10px;
+        margin-bottom: 10px;
+    }
+    [data-testid="stMetricLabel"] {
+      font-size: 1rem;
+      color: #a0b0c0;
+    }
+    [data-testid="stMetricValue"] {
+      font-size: 1.5rem;
+    }
 </style>
 """, unsafe_allow_html=True)
 
 
-# --- Database Connection and Data Loading ---
+# --- Database Connection & Data Loading ---
 
-### NEW ###
-@st.cache_data(ttl=600, show_spinner="Fetching overall statistics...")
-def get_overall_stats():
-    """Fetches key overall metrics (total blocks, ATH) directly from the database."""
+@st.cache_data(ttl=60, show_spinner="Fetching latest pool data...")
+def load_recent_xmr_data():
+    """Fetches recent XMR pool statistics for live charts and metrics."""
     try:
         conn = psycopg2.connect(**st.secrets["database"])
-        query = """
-        SELECT
-            MAX(pool_blocks_found) AS total_blocks,
-            MAX(pool_hashrate) AS ath_hashrate
-        FROM pool_statistics;
-        """
-        stats_df = pd.read_sql_query(query, conn)
+        # Fetch more data to ensure calculations for 24h are accurate
+        query = "SELECT * FROM pool_statistics ORDER BY timestamp DESC LIMIT 60000;"
+        df = pd.read_sql_query(query, conn)
         conn.close()
-        return stats_df.iloc[0]
+        if not df.empty:
+            df['timestamp'] = pd.to_datetime(df['timestamp'], errors='coerce')
+            df.sort_values('timestamp', inplace=True)
+            df['pool_hashrate_mhs'] = df['pool_hashrate'] / 1e6
+            df['block_found'] = df['pool_blocks_found'].diff() > 0
+        return df
     except Exception as e:
-        st.error(f"Failed to fetch overall stats: {e}")
-        return pd.Series({'total_blocks': 0, 'ath_hashrate': 0})
+        st.error(f"Failed to load XMR pool data: {e}")
+        return pd.DataFrame()
 
-### NEW ###
-@st.cache_data(ttl=3600, show_spinner="Fetching epoch history...")
-def get_blocks_by_epoch():
-    """Fetches the total blocks found at the end of each epoch for historical analysis."""
+@st.cache_data(ttl=600, show_spinner="Fetching epoch history...")
+def get_xmr_blocks_by_epoch():
+    """Fetches and calculates the number of XMR blocks found in each epoch."""
     try:
         conn = psycopg2.connect(**st.secrets["database"])
+        # Filter for relevant epochs to avoid calculation errors with initial data
         query = """
-        SELECT
-            qubic_epoch,
-            MAX(pool_blocks_found) as blocks_at_epoch_end
+        SELECT qubic_epoch, MAX(pool_blocks_found) as blocks_at_epoch_end
         FROM pool_statistics
+        WHERE qubic_epoch >= 160
         GROUP BY qubic_epoch
         ORDER BY qubic_epoch;
         """
         df = pd.read_sql_query(query, conn)
         conn.close()
-        df['blocks_in_epoch'] = df['blocks_at_epoch_end'].diff().fillna(df['blocks_at_epoch_end'].iloc[0]).astype(int)
-        return df[['qubic_epoch', 'blocks_in_epoch']]
+        # Correctly calculate the diff for blocks within an epoch
+        df['blocks_in_epoch'] = df['blocks_at_epoch_end'].diff()
+        # For the first epoch in our dataset, the count is its own total
+        df.loc[df.index[0], 'blocks_in_epoch'] = df.loc[df.index[0], 'blocks_at_epoch_end']
+        return df[['qubic_epoch', 'blocks_in_epoch']].astype(int)
     except Exception as e:
-        st.error(f"Failed to fetch epoch block data: {e}")
+        st.error(f"Failed to fetch XMR epoch data: {e}")
         return pd.DataFrame(columns=['qubic_epoch', 'blocks_in_epoch'])
 
-
-### UPDATED ###
-def preprocess_pool_data(df):
-    """Preprocesses the raw pool statistics DataFrame."""
-    if df.empty:
-        return df
-    
-    df['timestamp'] = pd.to_datetime(df['timestamp'], errors='coerce')
-    df.sort_values('timestamp', inplace=True)
-    df['pool_hashrate_mhs'] = df['pool_hashrate'] / 1e6
-    df['network_hashrate_ghs'] = df['network_hashrate'] / 1e9
-    df['block_found'] = df['pool_blocks_found'].diff().fillna(0) > 0
-    return df
-
-### UPDATED ###
-@st.cache_data(ttl=REFRESH_INTERVAL, show_spinner="Fetching latest data...")
-def load_recent_data():
-    """Connects to PostgreSQL and fetches recent pool statistics."""
+@st.cache_data(ttl=60, show_spinner="Fetching Tari block data...")
+def load_tari_data():
+    """Fetches all Tari block data."""
     try:
         conn = psycopg2.connect(**st.secrets["database"])
-        query = """
-        SELECT timestamp, pool_hashrate, network_hashrate, pool_blocks_found, qubic_epoch
-        FROM pool_statistics
-        ORDER BY timestamp DESC
-        LIMIT 50000;
-        """
+        query = "SELECT * FROM tari_blocks ORDER BY block_height DESC;"
         df = pd.read_sql_query(query, conn)
         conn.close()
-        return preprocess_pool_data(df)
-    except psycopg2.OperationalError as e:
-        st.error(f"DB Connection Error: Could not connect to the database. Check credentials and server status. Details: {e}")
-        return pd.DataFrame()
+        if not df.empty:
+            df['timestamp'] = pd.to_datetime(df['timestamp'], errors='coerce')
+        return df
     except Exception as e:
-        st.error(f"An unexpected error occurred while fetching data: {e}")
-        return pd.DataFrame()
-
-@st.cache_data(ttl=REFRESH_INTERVAL, show_spinner="Loading burn data...")
-def load_burn_data():
-    """Loads token burn data from its separate CSV source."""
-    try:
-        df = pd.read_csv("http://66.179.92.83/data/qubic_burns.csv")
-        df['timestamp'] = pd.to_datetime(df['timestamp'])
-        df['qubic_amount'] = pd.to_numeric(df['qubic_amount'], errors='coerce')
-        df['usdt_value'] = pd.to_numeric(df['usdt_value'], errors='coerce')
-        return df.sort_values('timestamp')
-    except Exception as e:
-        st.error(f"Failed to load burn data: {str(e)}")
+        st.error(f"Failed to load Tari block data: {e}")
         return pd.DataFrame()
 
 # --- Helper Functions ---
 def format_hashrate(h):
-    """Formats hashrate values for display."""
     if pd.isna(h) or h == 0: return "N/A"
     if h >= 1e9: return f"{h/1e9:.2f} GH/s"
     if h >= 1e6: return f"{h/1e6:.2f} MH/s"
-    if h >= 1e3: return f"{h/1e3:.2f} KH/s"
     return f"{h:.2f} H/s"
 
-def format_timespan(delta):
-    """Formats a timedelta for display."""
-    if pd.isna(delta) or not isinstance(delta, timedelta): return "N/A"
+def format_timespan(latest_timestamp, event_timestamp):
+    if pd.isna(event_timestamp): return "N/A"
+    delta = latest_timestamp - event_timestamp
     days = delta.days
     hours, rem = divmod(delta.seconds, 3600)
     minutes, _ = divmod(rem, 60)
     if days > 0: return f"{days}d {hours}h ago"
-    return f"{hours}h {minutes}m ago"
-
-def downsample(df, interval='5T'):
-    """Downsamples DataFrame while preserving key points like ATH and block finds."""
-    if df.empty: return df
-
-    ath_idx = df['pool_hashrate'].idxmax()
-    original_block_indices = df[df['block_found']].index
-
-    df_resampled = df.resample(interval, on='timestamp').agg({
-        'pool_hashrate': 'mean', 'pool_hashrate_mhs': 'mean',
-        'network_hashrate': 'mean', 'network_hashrate_ghs': 'mean',
-        'pool_blocks_found': 'last', 'block_found': 'any'
-    }).reset_index()
-
-    extra_points_list = [df.loc[[ath_idx]]]
-    if not original_block_indices.empty:
-        extra_points_list.append(df.loc[original_block_indices])
-    
-    df_combined = pd.concat([df_resampled] + extra_points_list, ignore_index=True)
-    df_combined.drop_duplicates(subset=['timestamp'], keep='last', inplace=True)
-    df_combined.sort_values(by='timestamp', inplace=True)
-    return df_combined
-
-### NEW ###
-def display_floating_cat():
-    """Generates and displays the HTML/CSS for the floating cat animation."""
-    # Define animation parameters
-    top = random.randint(10, 80)
-    left = random.randint(10, 80)
-    duration = random.randint(10, 20)
-    move_x = random.randint(-40, 40)
-    move_y = random.randint(-40, 40)
-    
-    # Placeholder for a base64 encoded cat image
-    # In a real app, you would load this from a file
-    encoded_cat = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=" # 1x1 transparent pixel
-    
-    st.markdown(f"""
-        <style>
-        @keyframes floatCat {{
-            0% {{ transform: translate(0, 0); }}
-            100% {{ transform: translate({move_x}px, {move_y}px); }}
-        }}
-        .floating-cat {{
-            position: fixed; top: {top}%; left: {left}%; width: 100px; z-index: 9999;
-            animation: floatCat {duration}s ease-in-out infinite alternate;
-            cursor: pointer; border-radius: 50%; object-fit: cover;
-        }}
-        </style>
-        <a href="https://matildaonqubic.com/" target="_blank">
-            <img src="data:image/png;base64,{encoded_cat}" class="floating-cat"
-                 title="Hello! I'm Matilda the Satoshi’s Cat. In my idle time, I chase Monero blocks. 🐱" />
-        </a>
-    """, unsafe_allow_html=True)
-
+    if hours > 0: return f"{hours}h {minutes}m ago"
+    return f"{minutes}m ago"
 
 # --- Main Application ---
 st.markdown("""
@@ -205,173 +118,173 @@ st.markdown("""
 </div>
 """, unsafe_allow_html=True)
 
-# Load all data
-df = load_recent_data()
-overall_stats = get_overall_stats()
+# Load data required for all tabs
+xmr_df = load_recent_xmr_data()
+tari_df = load_tari_data()
+xmr_epoch_history = get_xmr_blocks_by_epoch()
 
-tab1, tab2 = st.tabs(["Pool Stats", "Token Burns"])
+# Main Tabs
+overall_tab, xmr_tab, tari_tab = st.tabs(["📊 Overall", " H/s XMR Pool", "⛏️ Tari Pool"])
 
-with tab1:
-    if not df.empty:
-        latest = df.iloc[-1]
+# --- Overall Tab ---
+with overall_tab:
+    st.header("Overall Mining Performance")
+    st.markdown("A high-level view of blocks found by each mining pool across Qubic epochs.")
+
+    c1, c2 = st.columns(2)
+    with c1:
+        st.metric("Total XMR Pool Blocks", f"{xmr_epoch_history['blocks_in_epoch'].sum():,}" if not xmr_epoch_history.empty else "0")
+    with c2:
+        st.metric("Total Tari Pool Blocks", f"{len(tari_df):,}" if not tari_df.empty else "0")
+
+    st.divider()
+    st.subheader("Blocks per Epoch Heatmap")
+
+    # Prepare data for heatmap
+    if not tari_df.empty:
+        tari_epoch_history = tari_df.groupby('epoch')['block_height'].count().reset_index()
+        tari_epoch_history.rename(columns={'block_height': 'blocks_in_epoch', 'epoch': 'qubic_epoch'}, inplace=True)
         
-        # --- Metric Calculations ---
-        six_hr = df[df['timestamp'] >= (df['timestamp'].max() - timedelta(hours=6))]
-        day_av = df[df['timestamp'] >= (df['timestamp'].max() - timedelta(hours=24))]
+        # Merge dataframes
+        heatmap_df = pd.merge(xmr_epoch_history, tari_epoch_history, on='qubic_epoch', how='outer').fillna(0)
+        heatmap_df.rename(columns={'blocks_in_epoch_x': 'XMR Pool', 'blocks_in_epoch_y': 'Tari Pool'}, inplace=True)
+        heatmap_df = heatmap_df.sort_values('qubic_epoch')
         
-        mean_hash_6h = six_hr['pool_hashrate'].mean()
-        mean_hash_24h = day_av['pool_hashrate'].mean()
+        # Create Heatmap
+        fig_heatmap = go.Figure(data=go.Heatmap(
+                   z=[heatmap_df['XMR Pool'], heatmap_df['Tari Pool']],
+                   x=heatmap_df['qubic_epoch'],
+                   y=['XMR Pool', 'Tari Pool'],
+                   hoverongaps=False,
+                   colorscale='Viridis',
+                   hovertemplate='<b>Epoch:</b> %{x}<br><b>Blocks:</b> %{z}<extra></extra>'))
         
-        last_block_time = df[df['block_found']]['timestamp'].iloc[-1] if df['block_found'].any() else None
-        time_since_block = format_timespan(latest['timestamp'] - last_block_time) if last_block_time else "No recent blocks"
+        fig_heatmap.update_layout(
+            plot_bgcolor='rgba(0,0,0,0)', paper_bgcolor='rgba(0,0,0,0)',
+            font=dict(color='white'),
+            xaxis_title="Qubic Epoch",
+            yaxis_title="Mining Pool",
+            height=300,
+            margin=dict(l=20, r=20, t=40, b=20)
+        )
+        st.plotly_chart(fig_heatmap, use_container_width=True)
+    else:
+        st.info("Not enough data to display heatmap.")
 
-        block_times = day_av[day_av['block_found']]['timestamp']
-        mean_block_time_min = (block_times.diff().mean().total_seconds() / 60) if len(block_times) > 1 else None
 
-        epoch_block_history = get_blocks_by_epoch()
-        if not epoch_block_history.empty:
-            current_epoch_blocks = epoch_block_history.iloc[-1]
-            previous_epoch_blocks = epoch_block_history.iloc[-2] if len(epoch_block_history) > 1 else None
-            epoch_delta = (current_epoch_blocks['blocks_in_epoch'] - previous_epoch_blocks['blocks_in_epoch']) if previous_epoch_blocks is not None else None
-        else:
-            current_epoch_blocks = previous_epoch_blocks = epoch_delta = None
-
-        # --- UI Layout ---
-        st.subheader("Live Pool Performance")
-        c1, c2, c3, c4 = st.columns(4)
-        c1.metric("Pool Hashrate", format_hashrate(latest['pool_hashrate']))
-        c2.metric("Network Hashrate", format_hashrate(latest['network_hashrate']))
-        c3.metric("Total Blocks Found", f"{int(overall_stats['total_blocks']):,}")
-        c4.metric("Last Block Found", time_since_block)
+# --- XMR Pool Tab ---
+with xmr_tab:
+    st.header("Monero (XMR) Pool Statistics")
+    if not xmr_df.empty:
+        latest_xmr = xmr_df.iloc[-1]
+        
+        # Metric Calculations
+        day_ago_xmr = xmr_df['timestamp'].max() - timedelta(hours=24)
+        day_av_xmr = xmr_df[xmr_df['timestamp'] >= day_ago_xmr]
+        mean_hash_24h = day_av_xmr['pool_hashrate'].mean()
+        
+        last_block_time_xmr = xmr_df[xmr_df['block_found']]['timestamp'].iloc[-1] if xmr_df['block_found'].any() else None
+        
+        # UI Layout
+        st.subheader("Live Performance")
+        c1, c2, c3 = st.columns(3)
+        c1.metric("Pool Hashrate", format_hashrate(latest_xmr['pool_hashrate']))
+        c2.metric("Network Hashrate", format_hashrate(latest_xmr['network_hashrate']))
+        c3.metric("Last Block Found", format_timespan(latest_xmr['timestamp'], last_block_time_xmr))
         
         st.divider()
         
-        st.subheader("Performance Averages & Epochs")
-        c1, c2, c3, c4 = st.columns(4)
-        c1.metric("All-Time High Hashrate", format_hashrate(overall_stats['ath_hashrate']))
-        c2.metric("Mean Hashrate (24h)", format_hashrate(mean_hash_24h))
-        c3.metric("Avg. Block Time (24h)", f"{mean_block_time_min:.1f} min" if mean_block_time_min else "N/A")
-        if current_epoch_blocks is not None:
-             c4.metric(
-                f"Current Epoch ({current_epoch_blocks['qubic_epoch']}) Blocks",
-                value=f"{current_epoch_blocks['blocks_in_epoch']:,}",
-                delta=f"{int(epoch_delta):,}" if epoch_delta is not None else None,
-                delta_color="normal"
-            )
-        
-        st.divider()
-
-        # --- Charts ---
+        # Charts
         chart_col, epoch_col = st.columns([3, 1])
         with chart_col:
             st.subheader("Pool & Network Hashrate (Last 24 Hours)")
-            use_log_scale = st.toggle("Use Log Scale for Hashrate Chart", value=False, key="log_hash")
-
-            df_chart = downsample(df)
-            df_chart['pool_hashrate_mhs'] = df_chart['pool_hashrate_mhs'].clip(lower=1e-1)
-            df_chart['network_hashrate_ghs'] = df_chart['network_hashrate_ghs'].clip(lower=1e-1)
+            df_chart = xmr_df[xmr_df['timestamp'] >= day_ago_xmr]
             
-            fig = go.Figure()
-            fig.add_trace(go.Scatter(x=df_chart['timestamp'], y=df_chart['pool_hashrate_mhs'], name='Pool (MH/s)', line=dict(color='#4cc9f0'), hovertemplate='%{x|%Y-%m-%d %H:%M}<br>Pool: %{y:.2f} MH/s<extra></extra>'))
-            fig.add_trace(go.Scatter(x=df_chart['timestamp'], y=df_chart['network_hashrate_ghs'], name='Network (GH/s)', line=dict(color='#f72585', dash='dot'), yaxis='y2', hovertemplate='%{x|%Y-%m-%d %H:%M}<br>Network: %{y:.2f} GH/s<extra></extra>'))
-            blocks = df_chart[df_chart['block_found']]
-            fig.add_trace(go.Scatter(x=blocks['timestamp'], y=blocks['pool_hashrate_mhs'], mode='markers', name='Block Found', marker=dict(symbol='star', size=12, color='gold', line=dict(width=1, color='black')), hovertemplate='%{x|%Y-%m-%d %H:%M}<br>Block Found<extra></extra>'))
+            fig_xmr = go.Figure()
+            fig_xmr.add_trace(go.Scatter(x=df_chart['timestamp'], y=df_chart['pool_hashrate_mhs'], name='Pool (MH/s)', line=dict(color='#4cc9f0')))
+            fig_xmr.add_trace(go.Scatter(x=df_chart[df_chart['block_found']]['timestamp'], y=df_chart[df_chart['block_found']]['pool_hashrate_mhs'], mode='markers', name='Block Found', marker=dict(symbol='star', size=12, color='gold')))
             
-            ath_val_mhs = overall_stats['ath_hashrate'] / 1e6
-            if not use_log_scale:
-                fig.add_hline(y=ath_val_mhs, line_dash="longdash", line_color="gold", annotation_text=f"ATH: {ath_val_mhs:,.0f} MH/s", annotation_position="top left", annotation_font_color="gold")
-
-            end_time = df_chart['timestamp'].max()
-            start_time = end_time - timedelta(hours=24)
-            
-            fig.update_layout(
-                xaxis=dict(title='Time', gridcolor='rgba(255,255,255,0.1)', range=[start_time, end_time], rangeslider=dict(visible=True, thickness=0.05)),
-                yaxis=dict(title='Pool Hashrate (MH/s)', gridcolor='rgba(255,255,255,0.1)', type='log' if use_log_scale else 'linear'),
-                yaxis2=dict(title='Network Hashrate (GH/s)', overlaying='y', side='right', showgrid=False, type='log' if use_log_scale else 'linear'),
-                margin=dict(t=20, b=10, l=10, r=10), height=450, plot_bgcolor='rgba(0,0,0,0)', paper_bgcolor='rgba(0,0,0,0)',
-                font=dict(color='white'), legend=dict(x=0.01, y=0.99, orientation='h'), hovermode='x unified'
+            fig_xmr.update_layout(
+                xaxis_title='Time', yaxis_title='Pool Hashrate (MH/s)',
+                margin=dict(t=20, b=10, l=10, r=10), height=400, plot_bgcolor='rgba(0,0,0,0)',
+                paper_bgcolor='rgba(0,0,0,0)', font_color='white',
+                legend=dict(x=0.01, y=0.99, orientation='h'), hovermode='x unified'
             )
-            st.plotly_chart(fig, use_container_width=True)
-            
+            st.plotly_chart(fig_xmr, use_container_width=True)
+
         with epoch_col:
             st.subheader("Blocks per Epoch")
-            if not epoch_block_history.empty:
-                fig_epoch = go.Figure(go.Bar(
-                    x=epoch_block_history['qubic_epoch'].astype(str),
-                    y=epoch_block_history['blocks_in_epoch'],
-                    marker_color='#3a0ca3'
-                ))
-                fig_epoch.update_layout(
-                    xaxis_title="Epoch", yaxis_title="Blocks Found", plot_bgcolor='rgba(0,0,0,0)', paper_bgcolor='rgba(0,0,0,0)',
-                    font=dict(color='white'), margin=dict(l=0, r=0, t=0, b=0), height=450,
-                    xaxis=dict(type='category', gridcolor='rgba(255,255,255,0.1)'), yaxis=dict(gridcolor='rgba(255,255,255,0.1)')
-                )
-                st.plotly_chart(fig_epoch, use_container_width=True)
-            else:
-                st.info("Epoch history data is not available.")
+            fig_epoch_xmr = go.Figure(go.Bar(
+                x=xmr_epoch_history['qubic_epoch'].astype(str),
+                y=xmr_epoch_history['blocks_in_epoch'],
+                marker_color='#3a0ca3'
+            ))
+            fig_epoch_xmr.update_layout(
+                xaxis_title="Epoch", yaxis_title="Blocks Found", plot_bgcolor='rgba(0,0,0,0)', paper_bgcolor='rgba(0,0,0,0)',
+                font_color='white', margin=dict(l=0, r=0, t=0, b=0), height=400,
+                xaxis=dict(type='category')
+            )
+            st.plotly_chart(fig_epoch_xmr, use_container_width=True)
     else:
-        st.warning("Could not load pool data. Please check the database connection or try again later.")
+        st.warning("Could not load XMR pool data.")
 
-with tab2:
-    df_burn = load_burn_data()
-    if not df_burn.empty:
-        total_qubic_burned = df_burn['qubic_amount'].sum()
-        total_usdt_burned = df_burn['usdt_value'].sum()
+
+# --- Tari Pool Tab ---
+with tari_tab:
+    st.header("Tari (XTM) Pool Statistics")
+    if not tari_df.empty:
+        latest_tari = tari_df.iloc[0]
         
-        st.subheader("🔥 Token Burn Summary")
-        bc1, bc2, bc3 = st.columns(3)
-        bc1.metric("Total QUBIC Burned", f"{total_qubic_burned:,.0f}")
-        bc2.metric("USD Equivalent at Burn", f"${total_usdt_burned:,.2f}")
-        bc3.metric("Total Burn Transactions", f"{len(df_burn):,}")
+        # Metrics
+        st.subheader("Live Performance")
+        c1, c2, c3 = st.columns(3)
+        c1.metric("Total Blocks Found", f"{len(tari_df):,}")
+        c2.metric("Total Rewards", f"{tari_df['reward'].sum():,.2f} XTM")
+        c3.metric("Last Block Found", format_timespan(datetime.now(timezone.utc), latest_tari['timestamp']))
 
         st.divider()
-        
-        st.subheader("📋 Recent Burn Transactions")
-        df_display_burns = df_burn.copy()
 
-        ### NEW ###
-        # Placeholder for live price. In a real app, you'd fetch this.
-        # Example: import ccxt; mexc = ccxt.mexc(); price = mexc.fetch_ticker('QUBIC/USDT')['last']
-        live_qubic_price = 0.000007  # Replace with actual live price fetch
-        st.info(f"Note: 'Current Value' is calculated using a placeholder price of ${live_qubic_price}. For a live value, a real-time price feed (e.g., from an exchange API) would be needed.")
-        
-        df_display_burns['Current Value ($)'] = df_display_burns['qubic_amount'] * live_qubic_price
-        df_display_burns['TX_URL'] = "https://explorer.qubic.org/network/tx/" + df_display_burns['tx']
-        df_display_burns = df_display_burns.sort_values('timestamp', ascending=False)
-        
-        st.dataframe(
-            df_display_burns,
-            column_order=("timestamp", "TX_URL", "qubic_amount", "usdt_value", "Current Value ($)"),
-            use_container_width=True, hide_index=True,
-            column_config={
-                "timestamp": st.column_config.DatetimeColumn("Timestamp", format="YYYY-MM-DD HH:mm"),
-                "TX_URL": st.column_config.LinkColumn("TX ID", display_text=r"https://explorer\.qubic\.org/network/tx/(.+)"),
-                "qubic_amount": st.column_config.NumberColumn("QUBIC Amount", format="%.0f"),
-                "usdt_value": st.column_config.NumberColumn("Value at Burn ($)", format="$%.2f"),
-                "Current Value ($)": st.column_config.NumberColumn("Current Value ($)", format="$%.2f")
-            }
-        )
+        # Charts and Data
+        epoch_col, data_col = st.columns([1, 2])
+        with epoch_col:
+            st.subheader("Blocks per Epoch")
+            tari_epoch_history = tari_df.groupby('epoch')['block_height'].count().reset_index()
+            tari_epoch_history.rename(columns={'block_height': 'blocks_in_epoch', 'epoch':'qubic_epoch'}, inplace=True)
+            
+            fig_epoch_tari = go.Figure(go.Bar(
+                x=tari_epoch_history['qubic_epoch'].astype(str),
+                y=tari_epoch_history['blocks_in_epoch'],
+                marker_color='#f72585'
+            ))
+            fig_epoch_tari.update_layout(
+                xaxis_title="Epoch", yaxis_title="Blocks Found", plot_bgcolor='rgba(0,0,0,0)', paper_bgcolor='rgba(0,0,0,0)',
+                font_color='white', margin=dict(l=0, r=0, t=0, b=0), height=400,
+                xaxis=dict(type='category')
+            )
+            st.plotly_chart(fig_epoch_tari, use_container_width=True)
+            
+        with data_col:
+            st.subheader("Recent Blocks Found")
+            tari_df['url'] = "https://textexplore.tari.com/blocks/" + tari_df['block_height'].astype(str)
+            st.dataframe(
+                tari_df.head(20),
+                column_order=("timestamp", "block_height", "reward", "epoch", "url"),
+                column_config={
+                    "timestamp": st.column_config.DatetimeColumn("Timestamp (UTC)", format="YYYY-MM-DD HH:mm"),
+                    "block_height": "Block Height",
+                    "reward": st.column_config.NumberColumn("Reward (XTM)", format="%.2f"),
+                    "epoch": "Qubic Epoch",
+                    "url": st.column_config.LinkColumn("Explorer Link", display_text="View Block →")
+                },
+                hide_index=True,
+                use_container_width=True,
+                height=465
+            )
     else:
-        st.warning("No token burn data available.")
+        st.warning("Could not load Tari pool data.")
 
 # --- Footer and Controls ---
 st.divider()
-bcol1, bcol2 = st.columns([1, 4])
-with bcol1:
-    if st.button("🔄 Refresh Data", use_container_width=True):
-        st.cache_data.clear()
-        st.rerun()
-with bcol2:
-    if st.button("🐱 Release The Beast", use_container_width=True):
-        ### UPDATED ###
-        display_floating_cat()
-
-st.markdown("""
-<div style="margin-top: 2em; text-align: center; font-size: 0.85em; color: #8b95a1;">
-    📊 <strong>Data Source:</strong> <a href="https://xmr-stats.qubic.org/" target="_blank" style="color: #4cc9f0;">xmr-stats.qubic.org</a>
-    &nbsp;&nbsp;|&nbsp;&nbsp;
-    💰 <strong>Price Data:</strong> Placeholder (formerly MEXC)
-    &nbsp;&nbsp;|&nbsp;&nbsp;
-    💌 <strong>Inspired by:</strong> <a href="https://qubic-xmr.vercel.app/" target="_blank" style="color: #4cc9f0;">qubic-xmr.vercel.app</a>
-</div>
-""", unsafe_allow_html=True)
+if st.button("🔄 Refresh Data", use_container_width=True):
+    st.cache_data.clear()
+    st.rerun()
