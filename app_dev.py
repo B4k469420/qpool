@@ -100,8 +100,7 @@ def downsample(df, interval='5T'):
         'network_hashrate': 'mean',
         'network_hashrate_ghs': 'mean',
         'pool_blocks_found': 'last',
-        'block_found': 'any',
-        'qubic_usdt': 'last'
+        'block_found': 'any'
     }).reset_index()
 
     extra_points_list = []
