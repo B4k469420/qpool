@@ -31,7 +31,7 @@ def load_data_from_postgres():
             network_hashrate, 
             pool_blocks_found,
             qubic_epoch
-        FROM qubic_stats 
+        FROM pool_statistics 
         ORDER BY timestamp DESC 
         LIMIT 50000;
         """
