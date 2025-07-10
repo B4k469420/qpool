@@ -562,45 +562,33 @@ if not df.empty:
                     df_burn["current_usdt"] = np.nan
                     total_current_value = np.nan
         
-                st.markdown("### 🔥 Token Burn Summary")
-                colb1, colb2, colb3 = st.columns(3)
-                with colb1:
-                    st.markdown(f"""
-                    <div class="metric-card">
-                        <div class="metric-title">Total QUBIC Burned</div>
-                        <div class="metric-value">{total_qubic_burned:,.0f}</div>
-                    </div>
-                    """, unsafe_allow_html=True)
-                with colb2:
-                    st.markdown(f"""
-                    <div class="metric-card">
-                        <div class="metric-title">USD Equivalent Burned</div>
-                        <div class="metric-value">
-                            <div style="font-size: 0.9rem;">At Burn: ${total_usdt_burned:,.0f}</div>
-                            <div style="font-size: 0.9rem;">Now: ${total_current_value:,.0f}</div>
-                        </div>
-                    </div>
-                    """, unsafe_allow_html=True)
-                with colb3:
-                    st.markdown(f"""
-                    <div class="metric-card">
-                        <div class="metric-title">Last Burn</div>
-                        <div class="metric-value">{last_burn['timestamp'].strftime('%Y-%m-%d')}</div>
-                    </div>
-                    """, unsafe_allow_html=True)
-                
                 st.markdown("### 📈 Burn History")
-        
+
                 h2_days_ago = pd.Timestamp.utcnow() - timedelta(days=120)
                 recent_burns = df_burn[df_burn["timestamp"] > h2_days_ago].copy()
-        
+                
                 if not recent_burns.empty:
+                    # --- Group and Aggregate ---------------------------------------------
                     burn_by_epoch = (
-                        recent_burns.groupby("qubic_epoch")["qubic_amount"].sum().reset_index()
+                        recent_burns.groupby("qubic_epoch")
+                        .agg({
+                            "qubic_amount": "sum",
+                            "usdt_value": "sum",
+                            "current_usdt": "sum"
+                        })
+                        .reset_index()
+                        .sort_values("qubic_epoch")
                     )
+                
+                    # --- Calculate cumulative USD values ----------------------------------
+                    burn_by_epoch["cumulative_usdt"] = burn_by_epoch["usdt_value"].cumsum()
+                    burn_by_epoch["cumulative_current"] = burn_by_epoch["current_usdt"].cumsum()
                     burn_by_epoch["qubic_epoch"] = burn_by_epoch["qubic_epoch"].astype(int).astype(str)
-        
-                    fig_burn = go.Figure()
+                
+                    # --- Plotly figure with secondary y-axis ------------------------------
+                    fig_burn = make_subplots(specs=[[{"secondary_y": True}]])
+                
+                    # Bar: QUBIC burned per epoch (primary y-axis)
                     fig_burn.add_trace(
                         go.Bar(
                             x=burn_by_epoch["qubic_epoch"],
@@ -608,22 +596,66 @@ if not df.empty:
                             name="QUBIC Burned",
                             marker_color="crimson",
                             hovertemplate="Epoch %{x}<br>%{y:,.0f} QUBIC<extra></extra>",
-                        )
+                        ),
+                        secondary_y=False,
                     )
+                
+                    # Line: Cumulative USD value at burn (secondary y-axis)
+                    fig_burn.add_trace(
+                        go.Scatter(
+                            x=burn_by_epoch["qubic_epoch"],
+                            y=burn_by_epoch["cumulative_usdt"],
+                            name="Cumulative Burn Value ($)",
+                            mode="lines+markers",
+                            line=dict(color="deepskyblue", width=2),
+                            marker=dict(size=6),
+                            hovertemplate="Epoch %{x}<br>At Burn: $%{y:,.0f}<extra></extra>",
+                        ),
+                        secondary_y=True,
+                    )
+                
+                    # Line: Cumulative USD value at current price (same secondary y-axis)
+                    fig_burn.add_trace(
+                        go.Scatter(
+                            x=burn_by_epoch["qubic_epoch"],
+                            y=burn_by_epoch["cumulative_current"],
+                            name="Cumulative Current Value ($)",
+                            mode="lines+markers",
+                            line=dict(color="lime", dash="dot", width=2),
+                            marker=dict(size=6),
+                            hovertemplate="Epoch %{x}<br>Current: $%{y:,.0f}<extra></extra>",
+                        ),
+                        secondary_y=True,
+                    )
+                
+                    # Layout adjustments
                     fig_burn.update_layout(
-                        barmode="stack",
+                        barmode="group",
                         xaxis_title="Epoch",
-                        yaxis_title="QUBIC Burned",
+                        yaxis=dict(
+                            title="QUBIC Burned",
+                            showgrid=False,
+                            tickformat=",",
+                        ),
+                        yaxis2=dict(
+                            title="Cumulative USD Value",
+                            tickformat="$.0f",
+                            showgrid=False,
+                        ),
                         plot_bgcolor="rgba(0,0,0,0)",
                         paper_bgcolor="rgba(0,0,0,0)",
                         font=dict(color="white"),
                         xaxis=dict(type="category"),
                         margin=dict(l=20, r=20, t=30, b=30),
-                        height=300,
+                        height=400,
+                        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
                     )
+                
                     st.plotly_chart(fig_burn, use_container_width=True)
+                
                 else:
                     st.info("No burn transactions found in the last 120 days.")
+
                 
                 st.markdown("### 📋 All Burn Transactions")
                 df_display_burns = df_burn.copy()
