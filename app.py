@@ -546,117 +546,117 @@ if not df.empty:
                         st.warning("No price data available to display.")
                     st.markdown('</div>', unsafe_allow_html=True)                    
         with tab3:
-        df_burn = load_burn_data()
-        current_qubic_price = fetch_current_qubic_price()
+            df_burn = load_burn_data()
+            current_qubic_price = fetch_current_qubic_price()
+            
+            if not df_burn.empty:
+                total_qubic_burned = df_burn['qubic_amount'].sum()
+                total_usdt_burned = df_burn['usdt_value'].sum()
+                last_burn = df_burn.iloc[-1]
+                
+                # Compute current value of all historical burns
+                if current_qubic_price:
+                    df_burn["current_usdt"] = df_burn["qubic_amount"] * current_qubic_price
+                    total_current_value = df_burn["current_usdt"].sum()
+                else:
+                    df_burn["current_usdt"] = np.nan
+                    total_current_value = np.nan
         
-        if not df_burn.empty:
-            total_qubic_burned = df_burn['qubic_amount'].sum()
-            total_usdt_burned = df_burn['usdt_value'].sum()
-            last_burn = df_burn.iloc[-1]
-            
-            # Compute current value of all historical burns
-            if current_qubic_price:
-                df_burn["current_usdt"] = df_burn["qubic_amount"] * current_qubic_price
-                total_current_value = df_burn["current_usdt"].sum()
-            else:
-                df_burn["current_usdt"] = np.nan
-                total_current_value = np.nan
-    
-            st.markdown("### 🔥 Token Burn Summary")
-            colb1, colb2, colb3 = st.columns(3)
-            with colb1:
-                st.markdown(f"""
-                <div class="metric-card">
-                    <div class="metric-title">Total QUBIC Burned</div>
-                    <div class="metric-value">{total_qubic_burned:,.0f}</div>
-                </div>
-                """, unsafe_allow_html=True)
-            with colb2:
-                st.markdown(f"""
-                <div class="metric-card">
-                    <div class="metric-title">USD Equivalent Burned</div>
-                    <div class="metric-value">
-                        <div style="font-size: 0.9rem;">At Burn: ${total_usdt_burned:,.0f}</div>
-                        <div style="font-size: 0.9rem;">Now: ${total_current_value:,.0f}</div>
+                st.markdown("### 🔥 Token Burn Summary")
+                colb1, colb2, colb3 = st.columns(3)
+                with colb1:
+                    st.markdown(f"""
+                    <div class="metric-card">
+                        <div class="metric-title">Total QUBIC Burned</div>
+                        <div class="metric-value">{total_qubic_burned:,.0f}</div>
                     </div>
-                </div>
-                """, unsafe_allow_html=True)
-            with colb3:
-                st.markdown(f"""
-                <div class="metric-card">
-                    <div class="metric-title">Last Burn</div>
-                    <div class="metric-value">{last_burn['timestamp'].strftime('%Y-%m-%d')}</div>
-                </div>
-                """, unsafe_allow_html=True)
-            
-            st.markdown("### 📈 Burn History (Last 30 Days)")
-    
-            h2_days_ago = pd.Timestamp.utcnow() - timedelta(days=120)
-            recent_burns = df_burn[df_burn["timestamp"] > h2_days_ago].copy()
-    
-            if not recent_burns.empty:
-                burn_by_epoch = (
-                    recent_burns.groupby("qubic_epoch")["qubic_amount"].sum().reset_index()
-                )
-                burn_by_epoch["qubic_epoch"] = burn_by_epoch["qubic_epoch"].astype(int).astype(str)
-    
-                fig_burn = go.Figure()
-                fig_burn.add_trace(
-                    go.Bar(
-                        x=burn_by_epoch["qubic_epoch"],
-                        y=burn_by_epoch["qubic_amount"],
-                        name="QUBIC Burned",
-                        marker_color="crimson",
-                        hovertemplate="Epoch %{x}<br>%{y:,.0f} QUBIC<extra></extra>",
+                    """, unsafe_allow_html=True)
+                with colb2:
+                    st.markdown(f"""
+                    <div class="metric-card">
+                        <div class="metric-title">USD Equivalent Burned</div>
+                        <div class="metric-value">
+                            <div style="font-size: 0.9rem;">At Burn: ${total_usdt_burned:,.0f}</div>
+                            <div style="font-size: 0.9rem;">Now: ${total_current_value:,.0f}</div>
+                        </div>
+                    </div>
+                    """, unsafe_allow_html=True)
+                with colb3:
+                    st.markdown(f"""
+                    <div class="metric-card">
+                        <div class="metric-title">Last Burn</div>
+                        <div class="metric-value">{last_burn['timestamp'].strftime('%Y-%m-%d')}</div>
+                    </div>
+                    """, unsafe_allow_html=True)
+                
+                st.markdown("### 📈 Burn History (Last 30 Days)")
+        
+                h2_days_ago = pd.Timestamp.utcnow() - timedelta(days=120)
+                recent_burns = df_burn[df_burn["timestamp"] > h2_days_ago].copy()
+        
+                if not recent_burns.empty:
+                    burn_by_epoch = (
+                        recent_burns.groupby("qubic_epoch")["qubic_amount"].sum().reset_index()
                     )
-                )
-                fig_burn.update_layout(
-                    barmode="stack",
-                    xaxis_title="Epoch",
-                    yaxis_title="QUBIC Burned",
-                    plot_bgcolor="rgba(0,0,0,0)",
-                    paper_bgcolor="rgba(0,0,0,0)",
-                    font=dict(color="white"),
-                    xaxis=dict(type="category"),
-                    margin=dict(l=20, r=20, t=30, b=30),
-                    height=300,
-                )
-                st.plotly_chart(fig_burn, use_container_width=True)
-            else:
-                st.info("No burn transactions found in the last 120 days.")
-            
-            st.markdown("### 📋 All Burn Transactions")
-            df_display_burns = df_burn.copy()
-            df_display_burns["TX_URL"] = "https://explorer.qubic.org/network/tx/" + df_display_burns["txid"]
-            df_display_burns = df_display_burns.sort_values("timestamp", ascending=False)
-    
-            st.dataframe(
-                df_display_burns,
-                column_order=(
-                    "timestamp",
-                    "qubic_epoch",
-                    "TX_URL",
-                    "qubic_amount",
-                    "usdt_value",
-                    "current_usdt",
-                ),
-                use_container_width=True,
-                hide_index=True,
-                column_config={
-                    "timestamp": st.column_config.DatetimeColumn(label="Timestamp", format="YYYY-MM-DD HH:mm:ss"),
-                    "qubic_epoch": st.column_config.NumberColumn(label="Epoch", format="%.0f"),
-                    "TX_URL": st.column_config.LinkColumn(
-                        label="TX ID",
-                        display_text=r"https://explorer\.qubic\.org/network/tx/(.+)",
+                    burn_by_epoch["qubic_epoch"] = burn_by_epoch["qubic_epoch"].astype(int).astype(str)
+        
+                    fig_burn = go.Figure()
+                    fig_burn.add_trace(
+                        go.Bar(
+                            x=burn_by_epoch["qubic_epoch"],
+                            y=burn_by_epoch["qubic_amount"],
+                            name="QUBIC Burned",
+                            marker_color="crimson",
+                            hovertemplate="Epoch %{x}<br>%{y:,.0f} QUBIC<extra></extra>",
+                        )
+                    )
+                    fig_burn.update_layout(
+                        barmode="stack",
+                        xaxis_title="Epoch",
+                        yaxis_title="QUBIC Burned",
+                        plot_bgcolor="rgba(0,0,0,0)",
+                        paper_bgcolor="rgba(0,0,0,0)",
+                        font=dict(color="white"),
+                        xaxis=dict(type="category"),
+                        margin=dict(l=20, r=20, t=30, b=30),
+                        height=300,
+                    )
+                    st.plotly_chart(fig_burn, use_container_width=True)
+                else:
+                    st.info("No burn transactions found in the last 120 days.")
+                
+                st.markdown("### 📋 All Burn Transactions")
+                df_display_burns = df_burn.copy()
+                df_display_burns["TX_URL"] = "https://explorer.qubic.org/network/tx/" + df_display_burns["txid"]
+                df_display_burns = df_display_burns.sort_values("timestamp", ascending=False)
+        
+                st.dataframe(
+                    df_display_burns,
+                    column_order=(
+                        "timestamp",
+                        "qubic_epoch",
+                        "TX_URL",
+                        "qubic_amount",
+                        "usdt_value",
+                        "current_usdt",
                     ),
-                    "qubic_amount": st.column_config.NumberColumn(label="QUBIC (amount)", format="%.0f"),
-                    "usdt_value": st.column_config.NumberColumn(label="Value at Burn ($USDT)", format="$%.2f"),
-                    "current_usdt": st.column_config.NumberColumn(label="Current Value ($)", format="$%.2f"),
-                    "txid": None,
-                },
-            )
-        else:
-            st.info("No burn data available.")
+                    use_container_width=True,
+                    hide_index=True,
+                    column_config={
+                        "timestamp": st.column_config.DatetimeColumn(label="Timestamp", format="YYYY-MM-DD HH:mm:ss"),
+                        "qubic_epoch": st.column_config.NumberColumn(label="Epoch", format="%.0f"),
+                        "TX_URL": st.column_config.LinkColumn(
+                            label="TX ID",
+                            display_text=r"https://explorer\.qubic\.org/network/tx/(.+)",
+                        ),
+                        "qubic_amount": st.column_config.NumberColumn(label="QUBIC (amount)", format="%.0f"),
+                        "usdt_value": st.column_config.NumberColumn(label="Value at Burn ($USDT)", format="$%.2f"),
+                        "current_usdt": st.column_config.NumberColumn(label="Current Value ($)", format="$%.2f"),
+                        "txid": None,
+                    },
+                )
+            else:
+                st.info("No burn data available.")
 
 
 
