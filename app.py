@@ -589,7 +589,7 @@ if not df.empty:
                     </div>
                     """, unsafe_allow_html=True)
                 
-                st.markdown("### 📈 Burn History (Last 30 Days)")
+                st.markdown("### 📈 Burn History")
         
                 h2_days_ago = pd.Timestamp.utcnow() - timedelta(days=120)
                 recent_burns = df_burn[df_burn["timestamp"] > h2_days_ago].copy()
