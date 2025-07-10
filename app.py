@@ -195,104 +195,41 @@ def downsample(df, interval='5min'):
 
     return df_combined
     
-@st.cache_data(ttl=REFRESH_INTERVAL, show_spinner="Loading burn data...")
+@st.cache_data(ttl=REFRESH_INTERVAL, show_spinner="Loading burn data…")
 def load_burn_data():
+    """
+    Load the tracker-generated CSV and do light normalisation.
+
+    Expected CSV columns:
+        timestamp_utc | tickNumber | amount | source | hash |
+        qubic_usdt | tx_value_usdt | qubic_epoch
+    """
     try:
-        df = pd.read_csv("http://66.179.92.83/data/qubic_burns.csv")
-        df['timestamp'] = pd.to_datetime(df['timestamp'])
-        df['qubic_amount'] = pd.to_numeric(df['qubic_amount'], errors='coerce')
-        df['usdt_value'] = pd.to_numeric(df['usdt_value'], errors='coerce')
-        return df.sort_values('timestamp')
+        df = pd.read_csv("http://66.179.92.83/data/qubic_burns1.csv")
+
+        # --- rename to legacy column names your UI already expects ----------
+        df.rename(
+            columns={
+                "timestamp_utc": "timestamp",
+                "amount": "qubic_amount",
+                "tx_value_usdt": "usdt_value",
+                "hash": "txid",
+            },
+            inplace=True,
+        )
+
+        # --- typing ---------------------------------------------------------
+        df["timestamp"]     = pd.to_datetime(df["timestamp"], utc=True, errors="coerce")
+        df["qubic_amount"]  = pd.to_numeric(df["qubic_amount"], errors="coerce")
+        df["usdt_value"]    = pd.to_numeric(df["usdt_value"],   errors="coerce")
+        df["qubic_usdt"]    = pd.to_numeric(df["qubic_usdt"],   errors="coerce")
+        df["qubic_epoch"]   = pd.to_numeric(df["qubic_epoch"],  errors="coerce").astype("Int64")
+
+        return df.sort_values("timestamp")
+
     except Exception as e:
-        st.error(f"Failed to load burn data: {str(e)}")
+        st.error(f"Failed to load burn data: {e}")
         return pd.DataFrame()
-
-import pandas as pd
-
-def generate_funny_pool_stats(df: pd.DataFrame):
-    # Remove duplicates and parse timestamps
-    df = df.drop_duplicates(subset="timestamp").copy()
-    df["timestamp"] = pd.to_datetime(df["timestamp"])
-    df["timestamp_hour"] = pd.to_datetime(df["timestamp_hour"])
-    df = df.sort_values("timestamp")
-
-    # Time groupings
-    df["hour"] = df["timestamp"].dt.floor("h")
-    df["4h"] = df["timestamp"].dt.floor("4h")
-    df["day"] = df["timestamp"].dt.floor("d")
-    df["week"] = df["timestamp"].dt.to_period("W").dt.start_time
-    df["month"] = df["timestamp"].dt.to_period("M").dt.start_time
-
-    # Calculate delta in blocks (assumes pool_blocks_found is cumulative)
-    df["blocks_delta"] = df["pool_blocks_found"].diff().fillna(0)
-    # Only positive block increases matter
-    block_gains = df[df["blocks_delta"] > 0].copy()
-    
-    results = []
-    descriptions = []
-
-    def add_stat(name, score, date, desc, epoch="N/A"):
-        results.append({"Competition": name, "Score": score, "Date": str(date), "Epoch": epoch})
-        descriptions.append({"Competition": name, "Description": desc})
-
-
-    # 1. Pool Hashrate ATH
-    ath = df["pool_hashrate"].max()
-    ath_time = df[df["pool_hashrate"] == ath]["timestamp"].iloc[0]
-    ath_mhs = ath / 1_000_000
-    add_stat("Pool Hashrate ATH", f"{ath_mhs:,.2f} MH/s", ath_time, "HHashrate All Time High", epoch="N/A")
-    
-
-    # 2. Sprint (1h)
-    blocks_1h = block_gains.groupby("hour")["blocks_delta"].sum()
-    sprint = blocks_1h.max()
-    sprint_time = blocks_1h.idxmax()
-    sprint_epoch = df[df["timestamp"].dt.floor("h") == sprint_time]["qubic_epoch"].mode()[0]
-    add_stat("Sprint", f"{int(sprint)} blocks", sprint_time, "Most blocks found in a single hour.", sprint_epoch)
-    
-    # 3. Mid-distance (4h)
-    blocks_4h = block_gains.groupby("4h")["blocks_delta"].sum()
-    mid = blocks_4h.max()
-    mid_time = blocks_4h.idxmax()
-    mid_epoch = df[df["timestamp"].dt.floor("4h") == mid_time]["qubic_epoch"].mode()[0]
-    add_stat("Mid-distance", f"{int(mid)} blocks", mid_time, "Most blocks found in a 4-hour window.", mid_epoch)
-    
-    # 4. Long-distance (24h)
-    blocks_day = block_gains.groupby("day")["blocks_delta"].sum()
-    long_dist = blocks_day.max()
-    long_time = blocks_day.idxmax()
-    long_epoch = df[df["timestamp"].dt.floor("d") == long_time]["qubic_epoch"].mode()[0]
-    add_stat("Long-distance", f"{int(long_dist)} blocks", long_time, "Most blocks found in 24 hours.", long_epoch)
-    
-    # 5. Marathon (week)
-    blocks_week = block_gains.groupby("week")["blocks_delta"].sum()
-    marathon = blocks_week.max()
-    marathon_time = blocks_week.idxmax()
-    marathon_epoch = df[df["timestamp"].dt.to_period("W").dt.start_time == marathon_time]["qubic_epoch"].mode()[0]
-    add_stat("Marathon", f"{int(marathon)} blocks", marathon_time, "Most blocks found in a week.", marathon_epoch)
-
-    # 6. Lightning Round (shortest time to mine 3 blocks)
-    block_changes = df[df["blocks_delta"] > 0]["timestamp"]
-    if len(block_changes) >= 3:
-        min_diff = (block_changes.diff(2)).min()
-        short_span_time = block_changes.iloc[2]
-        add_stat("Lightning Round", f"3 blocks in {min_diff}", short_span_time, "Fastest time to mine 3 blocks.", "N/A")
-    else:
-        add_stat("Lightning Round", "Insufficient data", "N/A", "Fastest time to mine 3 blocks.")
-
-    # 7. Power Hour (highest average hashrate in 1h)
-    hash_hour = df.groupby("hour")["pool_hashrate"].mean()
-    power_val = hash_hour.max()
-    power_time = hash_hour.idxmax()
-    add_stat("Pool Hashrate Power Hour", f"{power_val:,.2f} MH/s", power_time, "Hour with the highest average hashrate.")
-
-    results_df = pd.DataFrame(results)
-    descriptions_df = pd.DataFrame(descriptions)
-
-    return results_df, descriptions_df
-
-
-
 
 # Load data
 df = load_data()
@@ -339,40 +276,6 @@ if not df.empty:
 
     # Calculate delta in blocks found
     df["blocks_delta"] = df["pool_blocks_found"].diff().fillna(0)
-    
-    if latest['pool_blocks_found'] == 100:
-        st.balloons()
-        st.markdown("""
-                <style>
-                @keyframes float {
-                    0% { transform: translateY(0); }
-                    100% { transform: translateY(-100vh); opacity: 0; }
-                }
-            
-                .emoji {
-                    position: fixed;
-                    bottom: 0;
-                    animation: float 5s ease-in infinite;
-                    font-size: 36px;
-                }
-            
-                .emoji:nth-child(1) { left: 10%; animation-delay: 0s; }
-                .emoji:nth-child(2) { left: 25%; animation-delay: 1s; }
-                .emoji:nth-child(3) { left: 35%; animation-delay: 2s; }
-                .emoji:nth-child(4) { left: 45%; animation-delay: 3s; }
-                .emoji:nth-child(5) { left: 55%; animation-delay: 4s; }
-                .emoji:nth-child(6) { left: 75%; animation-delay: 5s; }
-                .emoji:nth-child(6) { left: 85%; animation-delay: 6s; }
-                </style>
-            
-                <div class="emoji">🔥</div>
-                <div class="emoji">🎉</div>
-                <div class="emoji">1️⃣</div>
-                <div class="emoji">0️⃣</div>
-                <div class="emoji">0️⃣</div>
-                <div class="emoji">🚀</div>
-                <div class="emoji">🍾</div>
-            """, unsafe_allow_html=True)
     
     #tab1, tab2, tab3, tab4 = st.tabs(["Pool Stats", "QUBIC/XMR", "Token Burns", "Hall of Fame"])
     tab1, tab2, tab3 = st.tabs(["Pool Stats", "QUBIC/XMR", "Token Burns"])
@@ -667,116 +570,85 @@ if not df.empty:
             # Ensure datetime.now() is timezone-naive if df_burn['timestamp'] is naive at this point,
             # or make it timezone-aware if df_burn['timestamp'] is.
             # Assuming df_burn['timestamp'] from load_burn_data() is naive initially:
-            thirty_days_ago = datetime.now() - timedelta(days=30)
-            recent_burns = df_burn[df_burn['timestamp'] > thirty_days_ago].copy()
-
-            if not recent_burns.empty: # <<< Check if recent_burns has data
-                # Make sure timestamps are datetime and timezone-aware in UTC
-                recent_burns['timestamp'] = pd.to_datetime(recent_burns['timestamp'], utc=True)
-        
-                # Define the starting point of epoch 162 (timezone-aware)
-                epoch_162_start = pd.Timestamp('2025-05-28 12:00:00', tz='UTC')
-                
-                # Compute the epoch number
-                def compute_epoch_number(ts):
-                    if pd.isna(ts): # Handle potential NaT values if any
-                        return np.nan
-                    delta = ts - epoch_162_start
-                    weeks_offset = int(delta.total_seconds() // (7 * 24 * 3600))
-                    return 162 + weeks_offset
-                
-                recent_burns['epoch'] = recent_burns['timestamp'].apply(compute_epoch_number)
-                
-                # Drop rows where epoch could not be computed (e.g., if timestamp was NaT)
-                recent_burns.dropna(subset=['epoch'], inplace=True)
-
-                if not recent_burns.empty: # Check again after potential dropna
-                    burn_by_epoch = recent_burns.groupby('epoch')['qubic_amount'].sum().reset_index()
-                    
-                    # Convert epoch numbers to integers (if they became float due to NaN) then to strings
-                    burn_by_epoch['epoch'] = burn_by_epoch['epoch'].astype(int).astype(str)
-                    
-                    fig_burn = go.Figure()
-                    fig_burn.add_trace(go.Bar(
-                        x=burn_by_epoch['epoch'],
-                        y=burn_by_epoch['qubic_amount'],
-                        name='QUBIC Burned',
-                        marker_color='crimson',
-                        hovertemplate='Epoch %{x}<br>%{y:,.0f} QUBIC<extra></extra>'
-                    ))
-                    
-                    fig_burn.update_layout(
-                        barmode='stack',
-                        xaxis_title="Epoch",
-                        yaxis_title="QUBIC Burned",
-                        plot_bgcolor='rgba(0,0,0,0)',
-                        paper_bgcolor='rgba(0,0,0,0)',
-                        font=dict(color='white'),
-                        xaxis=dict(type='category'),
-                        margin=dict(l=20, r=20, t=30, b=30),
-                        height=300
+            # --- Burn history: last 120 d bar chart by epoch ----------------------------
+            h2_days_ago = pd.Timestamp.utcnow() - timedelta(days=120)
+            recent_burns = df_burn[df_burn["timestamp"] > h2_days_ago].copy()
+            
+            if not recent_burns.empty:
+                # group by already-stored epoch
+                burn_by_epoch = (
+                    recent_burns.groupby("qubic_epoch")["qubic_amount"].sum().reset_index()
+                )
+                burn_by_epoch["qubic_epoch"] = burn_by_epoch["qubic_epoch"].astype(int).astype(str)
+            
+                fig_burn = go.Figure()
+                fig_burn.add_trace(
+                    go.Bar(
+                        x=burn_by_epoch["qubic_epoch"],
+                        y=burn_by_epoch["qubic_amount"],
+                        name="QUBIC Burned",
+                        marker_color="crimson",
+                        hovertemplate="Epoch %{x}<br>%{y:,.0f} QUBIC<extra></extra>",
                     )
-                    st.plotly_chart(fig_burn, use_container_width=True)
-                else:
-                    st.info("No valid burn data to display by epoch for the last 30 days.")
+                )
+                fig_burn.update_layout(
+                    barmode="stack",
+                    xaxis_title="Epoch",
+                    yaxis_title="QUBIC Burned",
+                    plot_bgcolor="rgba(0,0,0,0)",
+                    paper_bgcolor="rgba(0,0,0,0)",
+                    font=dict(color="white"),
+                    xaxis=dict(type="category"),
+                    margin=dict(l=20, r=20, t=30, b=30),
+                    height=300,
+                )
+                st.plotly_chart(fig_burn, use_container_width=True)
             else:
-                st.info("No burn transactions found in the last 30 days.") # Message if recent_burns was initially empty
+                st.info("No burn transactions found in the last 120 days.")
+
+            else:
+                st.info("No burn transactions found in the last 120 days.") # Message if recent_burns was initially empty
                 
             latest_qubic_price = df_chart['qubic_usdt'].iloc[-1] if not df_chart.empty and 'qubic_usdt' in df_chart.columns and not df_chart['qubic_usdt'].empty else 0
             
-            st.markdown("### 📋 Recent Burn Transactions")
-            df_display_burns = df_burn.copy() # Start with a fresh copy
-    
-            # 1. Add 'Current Value ($)' using original column names
-            df_display_burns['Current Value ($)'] = df_display_burns['qubic_amount'] * latest_qubic_price
-    
-            # 2. Create the 'TX_URL' column using the original 'txid' column
-            # This column will contain the actual URLs.
-            df_display_burns['TX_URL'] = "https://explorer.qubic.org/network/tx/" + df_display_burns['tx']
-    
-            # df_display_burns now contains: 
-            # timestamp, txid, qubic_amount, usdt_value, 'Current Value ($)', 'TX_URL'
-    
-            # 3. Sort the DataFrame by timestamp in descending order
-            df_display_burns = df_display_burns.sort_values('timestamp', ascending=False)
-    
-            # 4. Display the DataFrame using st.dataframe
+            st.markdown("### 📋 All Burn Transactions")
+            df_display_burns = df_burn.copy()
+            
+            latest_qubic_price = (
+                df_chart["qubic_usdt"].iloc[-1]
+                if not df_chart.empty and "qubic_usdt" in df_chart.columns
+                else 0
+            )
+            df_display_burns["Current Value ($)"] = df_display_burns["qubic_amount"] * latest_qubic_price
+            df_display_burns["TX_URL"] = "https://explorer.qubic.org/network/tx/" + df_display_burns["txid"]
+            df_display_burns = df_display_burns.sort_values("timestamp", ascending=False)
+            
             st.dataframe(
-                df_display_burns, # Pass the prepared DataFrame
-                # Specify the order of columns as they should appear in the UI
-                column_order=("timestamp", "TX_URL", "qubic_amount", "usdt_value", "Current Value ($)"),
+                df_display_burns,
+                column_order=(
+                    "timestamp",
+                    "qubic_epoch",
+                    "TX_URL",
+                    "qubic_amount",
+                    "usdt_value",
+                    "Current Value ($)",
+                ),
                 use_container_width=True,
                 hide_index=True,
                 column_config={
-                    "timestamp": st.column_config.DatetimeColumn(
-                        label="Timestamp", # Sets the display header for the 'timestamp' column
-                        format="YYYY-MM-DD HH:mm:ss" # Adjust format as preferred
-                    ),
+                    "timestamp": st.column_config.DatetimeColumn(label="Timestamp", format="YYYY-MM-DD HH:mm:ss"),
+                    "qubic_epoch": st.column_config.NumberColumn(label="Epoch", format="%.0f"),
                     "TX_URL": st.column_config.LinkColumn(
-                        label="TX ID",  # This is the header for the clickable link column in the UI
-                        # The 'display_text' regex extracts the transaction ID part from the URL
-                        # stored in each cell of the 'TX_URL' column.
-                        display_text=r"https://explorer\.qubic\.org/network/tx/(.+)"
+                        label="TX ID",
+                        display_text=r"https://explorer\.qubic\.org/network/tx/(.+)",
                     ),
-                    "qubic_amount": st.column_config.NumberColumn(
-                        label="QUBIC (amount)", # Display header
-                        format="%.0f" # Format as an integer
-                    ),
-                    "usdt_value": st.column_config.NumberColumn(
-                        label="Value ($USDT)", # Display header for the original USDT value at burn time
-                        format="$%.2f"
-                    ),
-                    "Current Value ($)": st.column_config.NumberColumn(
-                        # Label will be "Current Value ($)" by default (from the column key)
-                        format="$%.2f"
-                    ),
-                    # Hide the original 'txid' column as its information is now presented
-                    # as the clickable text within the 'TX_URL' (displayed as "TX ID") column.
-                    "txid": None
-                }
+                    "qubic_amount": st.column_config.NumberColumn(label="QUBIC (amount)", format="%.0f"),
+                    "usdt_value": st.column_config.NumberColumn(label="Value ($USDT)", format="$%.2f"),
+                    "Current Value ($)": st.column_config.NumberColumn(format="$%.2f"),
+                    "txid": None,
+                },
             )
-        else:
-            st.warning("No token burn data available.")
+
 
 bcol1, bcol2 = st.columns(2)
 with bcol1:
