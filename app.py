@@ -605,9 +605,6 @@ if not df.empty:
                 st.plotly_chart(fig_burn, use_container_width=True)
             else:
                 st.info("No burn transactions found in the last 120 days.")
-
-            else:
-                st.info("No burn transactions found in the last 120 days.") # Message if recent_burns was initially empty
                 
             latest_qubic_price = df_chart['qubic_usdt'].iloc[-1] if not df_chart.empty and 'qubic_usdt' in df_chart.columns and not df_chart['qubic_usdt'].empty else 0
             
