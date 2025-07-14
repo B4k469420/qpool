@@ -388,9 +388,9 @@ if not df.empty:
 
                 fig.add_annotation(
                     x=pd.Timestamp("2025-07-13 18:41:00"),
-                    y=80,
+                    y=380,
                     text="🤡 NICE TRY",
-                    showarrow=True,
+                    showarrow=False,
                     arrowhead=2,
                     font=dict(size=12, color="white"),
                     bgcolor="rgba(0,0,0,0.5)"
