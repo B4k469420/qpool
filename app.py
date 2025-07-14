@@ -388,7 +388,7 @@ if not df.empty:
 
                 fig.add_annotation(
                     x=pd.Timestamp("2025-07-13 18:41:00"),
-                    y=380,
+                    y=480,
                     text="🤡 NICE TRY",
                     showarrow=False,
                     arrowhead=2,
