@@ -386,7 +386,15 @@ if not df.empty:
                     hovertemplate='%{x|%Y-%m-%d %H:%M}<br>Network: %{y:.2f} GH/s<extra></extra>'
                 ))
 
-                
+                fig.add_annotation(
+                    x=pd.Timestamp("2024-07-13 18:41:00"),
+                    y=80,
+                    text="🤡 NICE TRY",
+                    showarrow=True,
+                    arrowhead=2,
+                    font=dict(size=16, color="red"),
+                    bgcolor="rgba(0,0,0,0.5)"
+                )
 
                 blocks = df_chart[df_chart['block_found']]
                 fig.add_trace(go.Scatter(
