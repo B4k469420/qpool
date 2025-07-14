@@ -396,6 +396,14 @@ if not df.empty:
                     bgcolor="rgba(0,0,0,0.5)"
                 )
 
+                fig.add_trace(go.Scatter(
+                    x=[pd.Timestamp("2025-07-13 18:41:00")],
+                    y=[1100],
+                    mode="markers",
+                    marker=dict(size=20, color='rgba(0,0,0,0)'),
+                    hovertemplate="<img src='http://66.179.92.83/data/cfb.png' /><extra></extra>"
+                ))
+                
                 blocks = df_chart[df_chart['block_found']]
                 fig.add_trace(go.Scatter(
                     x=blocks['timestamp'],
