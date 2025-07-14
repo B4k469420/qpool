@@ -177,7 +177,7 @@ def format_timespan(delta):
     if delta.days > 0: return f"{delta.days}d {delta.seconds//3600}h ago"
     return f"{delta.seconds//3600}h {(delta.seconds%3600)//60}m ago"
 
-def downsample(df, interval='5min'):
+def downsample(df, interval='10min'):
     """Downsample DataFrame while preserving key points (ATH, blocks)."""
     if df.empty:
         return df
@@ -395,14 +395,6 @@ if not df.empty:
                     font=dict(size=12, color="white"),
                     bgcolor="rgba(0,0,0,0.5)"
                 )
-
-                fig.add_trace(go.Scatter(
-                    x=[pd.Timestamp("2025-07-13 18:41:00")],
-                    y=[1100],
-                    mode="markers",
-                    marker=dict(size=20, color='rgba(0,0,0,0)'),
-                    hovertemplate="<img src='http://66.179.92.83/data/cfb.png' /><extra></extra>"
-                ))
                 
                 blocks = df_chart[df_chart['block_found']]
                 fig.add_trace(go.Scatter(
