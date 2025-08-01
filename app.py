@@ -9,6 +9,29 @@ from datetime import datetime, timedelta
 from plotly.subplots import make_subplots
 import base64
 import random
+from google.oauth2 import service_account
+from google.analytics.data_v1beta import BetaAnalyticsDataClient
+from google.analytics.data_v1beta.types import RunReportRequest, DateRange, Metric
+
+# Load service account info from Streamlit secrets
+creds_dict = st.secrets["gcp_service_account"]
+credentials = service_account.Credentials.from_service_account_info(creds_dict)
+
+# GA4 Property ID (hardcoded or put in another secret)
+PROPERTY_ID = "498288047"
+
+client = BetaAnalyticsDataClient(credentials=credentials)
+
+def get_report(date_range: DateRange):
+    request = RunReportRequest(
+        property=f"properties/{PROPERTY_ID}",
+        date_ranges=[date_range],
+        metrics=[Metric(name="activeUsers")],
+    )
+    response = client.run_report(request)
+    return int(response.rows[0].metric_values[0].value)
+
+
 
 # Configuration
 GITHUB_RAW_URL = "http://66.179.92.83/data/qpool_V1.csv"
@@ -758,3 +781,13 @@ st.markdown("""
 💌 <strong>Inspired by:</strong> <a href="https://qubic-xmr.vercel.app/" target="_blank">qubic-xmr.vercel.app</a>
 </div>
 """, unsafe_allow_html=True)
+
+
+with st.spinner("Fetching data..."):
+    today = get_report(DateRange(start_date="today", end_date="today"))
+    yesterday = get_report(DateRange(start_date="yesterday", end_date="yesterday"))
+    last_30_days = get_report(DateRange(start_date="30daysAgo", end_date="today"))
+
+st.metric("👥 Today's Users", today)
+st.metric("👥 Yesterday's Users", yesterday)
+st.metric("📈 Last 30 Days Users", last_30_days)
