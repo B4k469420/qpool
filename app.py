@@ -786,7 +786,7 @@ st.markdown("""
 with st.spinner("Fetching data..."):
     today = get_report(DateRange(start_date="today", end_date="today"))
     yesterday = get_report(DateRange(start_date="yesterday", end_date="yesterday"))
-    last_30_days = get_report(DateRange(start_date="30daysAgo", end_date="today"))
+    last_30_days = get_report(DateRange(start_date="7daysAgo", end_date="today"))
 
 st.metric("👥 Today's Users", today)
 st.metric("👥 Yesterday's Users", yesterday)
