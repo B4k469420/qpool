@@ -6,3 +6,5 @@ numpy
 ccxt
 psycopg2-binary
 sqlalchemy
+google-analytics-data
+google-auth
